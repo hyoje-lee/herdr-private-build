@@ -1,0 +1,3 @@
+[submodule "mods/sources/herdr-layout-examples"]
+	path = mods/sources/herdr-layout-examples
+	url = https://github.com/herdrdev/herdr-layout-examples.git
