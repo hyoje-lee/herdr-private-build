@@ -1,4 +1,5 @@
 """Installer regression tests; use temporary files and never a real app/session."""
+import io
 import json
 import os
 from pathlib import Path
@@ -162,6 +163,50 @@ class PrerequisiteTests(unittest.TestCase):
             runner.assert_not_called()
             with self.assertRaisesRegex(RuntimeError, "clang"):
                 builder.prerequisites("app")
+
+
+class AuditTests(unittest.TestCase):
+    def deny(self, *items, returncode=1):
+        stderr = "\n".join(json.dumps(item) for item in items) + "\nnot json\n"
+        return subprocess.CompletedProcess([], returncode, stdout="", stderr=stderr)
+
+    vulnerability = {"type": "diagnostic", "fields": {"severity": "error", "code": "vulnerability", "message": "Timing leak",
+                                                      "advisory": {"id": "RUSTSEC-2023-0071", "package": "rsa"}}}
+    yanked = {"type": "diagnostic", "fields": {"severity": "warning", "code": "yanked", "message": "detected yanked crate"}}
+
+    def test_findings_and_error_count_are_parsed(self):
+        summary = {"type": "summary", "fields": {"advisories": {"errors": 1, "warnings": 1}}}
+        with patch.object(builder.shutil, "which", return_value="/tool/cargo-deny"), \
+             patch.object(builder.subprocess, "run", return_value=self.deny(self.vulnerability, self.yanked, summary)) as runner:
+            errors, findings = builder.audit(Path("/work"), "app", offline=True)
+        self.assertEqual(errors, 1)
+        self.assertEqual(findings, ["error[vulnerability] RUSTSEC-2023-0071 rsa: Timing leak",
+                                    "warning[yanked] detected yanked crate"])
+        argv = runner.call_args.args[0]
+        self.assertIn("--offline", argv)
+        self.assertEqual(argv[argv.index("--config") + 1], str(builder.DENY_CONFIG))
+        self.assertEqual(runner.call_args.kwargs["cwd"], Path("/work/herdr-app"))
+
+    def test_missing_summary_is_an_error_not_a_pass(self):
+        with patch.object(builder.shutil, "which", return_value="/tool/cargo-deny"), \
+             patch.object(builder.subprocess, "run", return_value=self.deny(self.vulnerability)):
+            with self.assertRaisesRegex(RuntimeError, "did not report"):
+                builder.audit(Path("/work"), "core", offline=False)
+
+    def test_install_warning_does_not_raise(self):
+        with patch.object(builder.shutil, "which", return_value=None), \
+             patch("sys.stderr", new_callable=io.StringIO):
+            self.assertIn("did not run", builder.warn_advisories(Path("/work"), "core", offline=False))
+        summary = {"type": "summary", "fields": {"advisories": {"errors": 1}}}
+        with patch.object(builder.shutil, "which", return_value="/tool/cargo-deny"), \
+             patch.object(builder.subprocess, "run", return_value=self.deny(self.vulnerability, summary)), \
+             patch("sys.stderr", new_callable=io.StringIO):
+            self.assertIn("1 unresolved", builder.warn_advisories(Path("/work"), "app", offline=False))
+        clean = {"type": "summary", "fields": {"advisories": {"errors": 0}}}
+        with patch.object(builder.shutil, "which", return_value="/tool/cargo-deny"), \
+             patch.object(builder.subprocess, "run", return_value=self.deny(clean, returncode=0)), \
+             patch("sys.stdout", new_callable=io.StringIO):
+            self.assertIsNone(builder.warn_advisories(Path("/work"), "core", offline=False))
 
 
 class PatchTests(unittest.TestCase):

@@ -22,6 +22,17 @@
 
 원본 submodule은 수정하지 않습니다. 소스 리비전이나 패치 문맥이 다르면 중단하며, 공식 배포 바이너리로 대체하지 않습니다. 빌드 의존성 다운로드는 허용됩니다. 시스템 도구·패키지는 [전제조건 문서](build-prerequisites.md)를 확인한 뒤 준비합니다. 스크립트는 `sudo`를 실행하거나 시스템 패키지를 임의로 변경하지 않습니다.
 
+### 의존성 취약점 검사
+
+설치·빌드 스크립트는 패치한 사본을 빌드하기 전에 `cargo deny check advisories`로 `Cargo.lock`의 의존성을 [RustSec](https://rustsec.org/) 권고와 비교합니다. 두 구성요소는 같은 설정 [scripts/deny.toml](../scripts/deny.toml)을 사용합니다. upstream의 `deny.toml`은 코어에만 있고 앱 CI는 이 검사를 실행하지 않기 때문입니다.
+
+- 권고가 있거나 검사를 실행하지 못하면 목록이나 원인을 출력하고 빌드·설치는 계속합니다. 빌드 출력에 묻히지 않도록 마지막 줄에 경고를 한 번 더 출력합니다. upstream 의존성은 이 저장소에서 바꿀 수 없으므로 설치를 막지 않습니다.
+- 검사 결과는 설치본의 `manifest.json`에 `advisory_check`로 남습니다.
+- 검사는 RustSec DB를 GitHub에서 내려받습니다. 빌드하는 장비의 통신이며 Herdr 자체의 통신이 아닙니다.
+- 권고를 검토해 적용되지 않는다고 판단하면 `scripts/deny.toml`의 `ignore`에 ID와 사유를 함께 등록합니다. 현재 확인한 결과와 영향 범위는 [소스 검토](source-audit.md#의존성-취약점-권고)에 있습니다.
+
+clippy·rustfmt·전체 테스트 스위트는 실행하지 않습니다. 이 저장소는 Rust 코드를 직접 작성하지 않으며, upstream CI가 고정 커밋에서 실행합니다. 차단 패치의 동작은 아래 [검증](#검증)의 정책 테스트로 확인합니다.
+
 주요 옵션은 다음과 같습니다.
 
 | 옵션 | 동작 |
@@ -29,10 +40,11 @@
 | `--check` | 해당 구성요소의 도구·버전·라이브러리·소스 리비전을 검사합니다. 앱 설치 검사에는 설치된 차단 빌드 코어도 필요합니다. 빌드·설치는 하지 않습니다. |
 | `--prepare-only` | 소스 복사와 패치만 수행해 적용 결과를 검토할 수 있습니다. |
 | `--build-only` | 빌드와 정책 테스트까지 수행하고 설치하지 않습니다. |
+| `--audit` | 소스 복사와 패치 후 의존성 취약점 검사만 수행합니다. 권고가 있으면 오류 코드로 종료합니다. 빌드·설치는 하지 않으며, 다른 실행 모드 옵션과 함께 쓸 수 없습니다. |
 | `--jobs 2` | 메모리에 맞춰 동시 빌드 수를 조절합니다. 기본값은 최대 4입니다. |
 | `--prefix /절대/경로` | 바이너리를 해당 경로의 `bin/`에 설치합니다. 기본값은 `~/.local`입니다. 코어와 앱에 같은 값을 사용합니다. |
 | `--data-home /절대/경로` | 데스크톱 실행 항목·아이콘·백업·빌드 기록 위치를 지정합니다. 기본값은 `XDG_DATA_HOME` 또는 `~/.local/share`입니다. |
-| `--offline` | Cargo를 `--frozen`으로 실행합니다. Zig 패키지도 캐시에 있어야 합니다. 이 옵션은 OS 수준의 네트워크 격리가 아닙니다. |
+| `--offline` | Cargo를 `--frozen`으로 실행하고, 취약점 검사는 캐시한 RustSec DB를 사용합니다. Zig 패키지와 RustSec DB도 캐시에 있어야 합니다. 이 옵션은 OS 수준의 네트워크 격리가 아닙니다. |
 
 ## 설치 후 사용하는 환경
 
@@ -73,11 +85,13 @@ git submodule update --init --recursive herdr-core
 python3 -m unittest discover -s scripts -p 'test_secure_build.py'
 ./scripts/build-install-core.sh --prepare-only
 ./scripts/build-install-app.sh --prepare-only
+./scripts/build-install-core.sh --audit
+./scripts/build-install-app.sh --audit
 git diff --check
 git submodule foreach --recursive 'git status --short'
 ```
 
-루트 `.venv`가 있다면 Python 검사 전에 `source .venv/bin/activate`를 실행합니다.
+루트 `.venv`가 있다면 Python 검사 전에 `source .venv/bin/activate`를 실행합니다. `--audit`은 권고가 있으면 실패하므로, 이미 알려진 권고 외에 새 항목이 생겼는지 확인합니다.
 
 실제 빌드 과정은 코어의 라이브러리 테스트와 앱의 바이너리 테스트 중 `private_policy_`만 실행합니다. 전송 URL을 강제로 지정하고 가짜 `curl`을 PATH 앞에 배치해, 전송 경로가 실행되면 설치를 중단합니다. 앱·코어의 `--private-build` 식별값도 검사합니다. 이 검사는 전체 GUI·SSH 통합 검증을 대신하지 않습니다.
 

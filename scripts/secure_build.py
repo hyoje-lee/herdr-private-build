@@ -15,6 +15,7 @@ import tempfile
 from secure_policy import PINS, POLICY, apply
 
 ROOT = Path(__file__).resolve().parent.parent
+DENY_CONFIG = ROOT / "scripts/deny.toml"
 
 
 def run(args, **kwargs):
@@ -119,6 +120,51 @@ def require_private_core(prefix):
     core = prefix / "bin/herdr-core"
     if not core.is_file() or not is_private(core):
         raise RuntimeError("Install the patched core first with scripts/build-install-core.sh using the same --prefix")
+
+
+def audit(work, component, offline):
+    """Check the prepared sources against RustSec advisories; return (error count, finding lines)."""
+    if not shutil.which("cargo-deny"):
+        raise RuntimeError("cargo-deny is not installed (cargo install --locked cargo-deny)")
+    # The advisory database is fetched from GitHub unless --offline uses the cached copy.
+    network = ["--offline"] if offline else []
+    result = subprocess.run(["cargo", "deny", "--color", "never", "--format", "json", *network, "--locked", "--workspace",
+                             "check", "advisories", "--config", str(DENY_CONFIG), "--hide-inclusion-graph"],
+                            cwd=work / f"herdr-{component}", capture_output=True, text=True)
+    summary, findings = None, []
+    for line in result.stderr.splitlines():
+        try:
+            item = json.loads(line)
+        except ValueError:
+            continue
+        fields = item.get("fields", {})
+        if item.get("type") == "summary":
+            summary = fields.get("advisories", {})
+        elif item.get("type") == "diagnostic" and fields.get("severity") in ("error", "warning"):
+            advisory = fields.get("advisory") or {}
+            label = " ".join(filter(None, (advisory.get("id"), advisory.get("package"))))
+            findings.append(f"{fields['severity']}[{fields.get('code')}] {label + ': ' if label else ''}{fields.get('message')}")
+    if summary is None:
+        detail = result.stderr.strip()[-500:] or f"exit status {result.returncode}"
+        raise RuntimeError(f"cargo-deny did not report a result: {detail}")
+    return summary.get("errors", 0), findings
+
+
+def warn_advisories(work, component, offline):
+    """Run the advisory check without stopping the install; return a closing warning, or None."""
+    try:
+        errors, findings = audit(work, component, offline)
+    except RuntimeError as error:
+        print(f"WARNING: security advisory check did not run: {error}", file=sys.stderr, flush=True)
+        return "WARNING: the security advisory check did not run; see the message before the build."
+    if findings:
+        print(f"Security advisory check for herdr-{component} (scripts/deny.toml):", file=sys.stderr)
+        print("\n".join("  " + line for line in findings), file=sys.stderr, flush=True)
+    if not errors:
+        print("Security advisory check: no errors", flush=True)
+        return None
+    return (f"WARNING: herdr-{component} was built with {errors} unresolved security advisories (listed before the build). "
+            f"Run scripts/build-install-{component}.sh --audit for the list.")
 
 
 def build(work, manifest, offline, jobs):
@@ -249,6 +295,7 @@ def main():
     parser.add_argument("--check", action="store_true", help="check source pins and prerequisites without building/installing")
     parser.add_argument("--prepare-only", action="store_true", help="export and patch sources, without building/installing")
     parser.add_argument("--build-only", action="store_true", help="build and test, without installing")
+    parser.add_argument("--audit", action="store_true", help="check the patched sources against RustSec advisories, without building/installing")
     parser.add_argument("--offline", action="store_true", help="use cached Cargo dependencies; Zig also needs cached packages")
     parser.add_argument("--jobs", type=int, default=min(os.cpu_count() or 1, 4))
     parser.add_argument("--prefix", type=Path, default=Path.home() / ".local")
@@ -258,14 +305,18 @@ def main():
         parser.error("This installer supports Linux x86_64/aarch64 only")
     if args.jobs < 1:
         parser.error("--jobs must be positive")
+    if args.audit and (args.check or args.prepare_only or args.build_only):
+        parser.error("--audit cannot be combined with --check, --prepare-only or --build-only")
     prefix = args.prefix.expanduser().absolute()
     data = args.data_home.expanduser().absolute()
-    if args.check or not args.prepare_only:
+    if args.check or not (args.prepare_only or args.audit):
         prerequisites(args.component)
         check_sources(args.component)
         if args.component == "app" and not args.build_only:
             require_private_core(prefix)
         if args.check:
+            if not shutil.which("cargo-deny"):
+                print("Note: cargo-deny is not installed; builds will warn that the advisory check did not run")
             print(f"Prerequisites and sources OK: {args.component}")
             return
     base = ROOT / ".build/private"
@@ -276,9 +327,24 @@ def main():
     if args.prepare_only:
         print(f"Prepared reviewed sources and patch: {work / 'private.patch'}")
         return
+    if args.audit:
+        try:
+            errors, findings = audit(work, args.component, args.offline)
+        except RuntimeError as error:
+            sys.exit(f"Security advisory check did not run: {error}")
+        print("\n".join(findings) or "No advisories")
+        if errors:
+            sys.exit(f"Security advisory check failed: {errors} errors in herdr-{args.component}")
+        print(f"Security advisory check passed: herdr-{args.component}")
+        return
+    # Advisories warn but do not stop the build: upstream dependencies cannot be changed here.
+    warning = warn_advisories(work, args.component, args.offline)
+    manifest["advisory_check"] = warning or "no errors"
     build(work, manifest, args.offline, args.jobs)
     if not args.build_only:
         install(work, prefix, data, args.component)
+    if warning:
+        print(warning, file=sys.stderr)
 
 
 if __name__ == "__main__":
