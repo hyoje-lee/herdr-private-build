@@ -65,7 +65,7 @@
    jq -r 'to_entries[] | select(.key != "mod:tmux-prefix") | .key as $s | .value | to_entries[]
      | select(.key == "ctrl-b") | "\($s): \(.value)"' ~/.config/herdr-app/keys.json
    ```
-7. `herdr-app check ~/.config/herdr-app/mods/tmux-prefix`를 실행합니다. 설정 파일은 자동으로 다시 로드됩니다. `herdr-app status`와 `keys.error`를 확인하고 실제 키 입력도 검증합니다.
+7. `herdr-app check ~/.config/herdr-app/mods/tmux-prefix`를 실행합니다. 설정 파일은 자동으로 다시 로드됩니다. `herdr-app status`의 `errors`가 비어 있는지 확인합니다. 앱은 설정을 읽지 못하면 앱 홈에 `keys.error`나 `settings.error` 파일을 만들고, 정상적으로 읽으면 지웁니다. `ls ~/.config/herdr-app/*.error`로 오류 파일이 없는지 확인한 뒤 실제 키 입력도 검증합니다.
 
 확인할 동작은 패널 없는 접두키 대기, 새 탭과 분할, `Ctrl+B ?`의 안내 패널, `Ctrl+B Ctrl+B`의 실제 키 전달, `Esc` 취소, 일반 문자 입력입니다. `herdr-app check`는 모드의 초기 로드만 검사하므로 단축키 동작 검증을 대신하지 않습니다.
 

@@ -40,6 +40,7 @@
 - 설정은 공식 앱과 같은 `~/.config/herdr-app/`을 그대로 사용합니다. 기존 단축키·모드·설정을 옮길 필요가 없습니다. 차단은 바이너리에 들어 있으므로 [통계·업데이트 설정](configuration.md)의 `telemetry`나 `HERDR_RELEASES_URL` 설정에 의존하지 않습니다.
 - 덮어쓴 기존 파일과 심볼릭 링크는 `~/.local/share/herdr-build/backups/<구성요소>-<시각>/`에 보존하고, `restore.json`에 원래 경로와 백업 대응 관계를 기록합니다. 설치 중 실패하면 이번에 바꾼 파일을 자동으로 되돌립니다. 현재 설치본의 소스 리비전, 패치와 바이너리 SHA-256은 `~/.local/share/herdr-build/<core|app>/`의 `manifest.json`과 `private.patch`에 남습니다.
 - 공식 앱 폴더 `~/.local/share/herdr-app/`은 지우지 않습니다. 설치 후 동작을 확인한 뒤 필요하면 직접 정리합니다.
+- 설치 전에 공식 실행 파일을 직접 지우지 않습니다. 지운 뒤 설치하면 `restore.json`의 백업이 모두 `null`이 되어 이 기록으로는 공식 설치본을 되돌릴 수 없습니다. 미리 정리해야 한다면 해당 파일을 별도로 백업합니다.
 - 실행 중인 앱과 코어를 자동으로 종료하거나 재시작하지 않습니다. 이미 실행 중인 공식 프로세스의 통신은 소급해서 차단되지 않으므로, 설치 전에 공식 앱과 코어를 정상 종료하고 설치 후 다시 시작합니다.
 - 설치 후에는 [공식 설치 스크립트](setup.md#새-환경에서-수행할-순서)를 실행하지 않습니다. 이 스크립트는 `~/.local/bin/herdr-app`와 `herdr-app.desktop`을 공식 앱으로 다시 작성합니다. 이미 실행했다면 앱 스크립트를 다시 실행해 복구합니다.
 
@@ -48,6 +49,19 @@
 ## SSH와 모드
 
 SSH 연결과 원격 터미널은 유지합니다. 같은 OS·CPU의 원격 호스트에 코어를 설치할 때에는 현재 패치된 코어가 복사됩니다. 다른 OS·CPU의 공식 코어를 내려받는 경로는 차단하므로, 해당 호스트에서 지원되는 보안 빌드를 먼저 준비해야 합니다. 이미 설치된 원격 코어에 연결한다고 그 코어의 보안 정책까지 바뀌지는 않습니다.
+
+OS나 CPU가 다른 원격 호스트는 그 호스트에 이 저장소를 받아 코어만 빌드합니다. 앱 소스와 GUI 라이브러리는 필요하지 않습니다. 원격 호스트에서 다음을 실행합니다.
+
+```sh
+git submodule update --init --recursive herdr-core
+./scripts/build-install-core.sh --check
+./scripts/build-install-core.sh
+~/.local/bin/herdr-core --private-build
+```
+
+설치 스크립트는 실행 중인 원격 코어를 재시작하지 않습니다. 기존 프로세스는 덮어쓰기 전의 바이너리로 계속 실행되며, Linux에서는 `/proc/<pid>/exe`가 `(deleted)`로 표시됩니다. `hc server status`의 `live`로 실행 중인 터미널을 확인한 뒤 원격 호스트에서 `hc server restart`를 실행합니다. 재시작하면 실행 중인 원격 프로그램이 종료되고, keep으로 설정한 터미널은 새 셸로 다시 열립니다.
+
+설치된 코어는 시스템의 libc와 libgcc_s만 사용합니다. 다시 빌드할 계획이 없다면 설치 후 `.build/private/`, Zig 캐시, Rust·Zig 도구를 지워도 실행에는 영향이 없습니다. 다시 빌드할 때에는 [전제조건](build-prerequisites.md)을 다시 준비합니다.
 
 기본 모드의 직접 HTTP·TCP·WebSocket 권한과 Git 의존성 자동 다운로드는 차단합니다. 모드의 `herdr.exec`·`herdr.hc`, 사용자가 지정하는 실행 프로그램과 SSH는 유지됩니다. 따라서 임의의 외부 모드를 안전하게 격리하는 샌드박스는 아닙니다. 보안 환경에서는 사용하는 모드와 실행 명령도 검토해야 합니다.
 

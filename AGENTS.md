@@ -39,6 +39,6 @@ herdr-app status
 git diff --check
 ```
 
-Use `git submodule update --init --recursive` to prepare the pinned upstream source. For mod changes, run `herdr-app check <mod-folder>`, inspect the app's `keys.error` and `settings.error`, and test affected shortcuts in the GUI. A successful initial mod load does not validate keyboard behavior. Process or socket visibility may be limited by the execution sandbox; do not infer that the app is stopped from an empty process list.
+Use `git submodule update --init --recursive` to prepare the pinned upstream source. For mod changes, run `herdr-app check <mod-folder>`, confirm that `herdr-app status` reports no `errors` and that no `keys.error` or `settings.error` file exists in the app home (the app writes these files on a load failure and removes them on success), and test affected shortcuts in the GUI. A successful initial mod load does not validate keyboard behavior. Process or socket visibility may be limited by the execution sandbox; do not infer that the app is stopped from an empty process list.
 
 For installer changes, run `python3 -m unittest discover -s scripts -p 'test_secure_build.py'` and both component scripts with `--prepare-only`. Use `--check` for component prerequisites. Full build requirements and policy tests are in the private-build guide. For documentation changes, check links and consistency with actual files. If running Python, activate the root `.venv` first when it exists.
