@@ -29,10 +29,42 @@
 
 1. `git submodule update --init --recursive`로 원본을 준비합니다.
 2. `mods/sources/herdr-layout-examples/tmux-prefix/mods/tmux-prefix/`의 모드 파일을 검토합니다. 이 모드는 실제 키를 터미널에 전달할 때 `hc`를 실행합니다.
-3. 기존 `~/.config/herdr-app/keys.json`을 백업합니다. 앱에 `mods/tmux-prefix/`가 이미 있으면 내용을 먼저 비교하고 덮어쓰지 않습니다.
-4. 저장소의 `mods/sources/herdr-layout-examples/tmux-prefix/mods/tmux-prefix/`를 앱의 `~/.config/herdr-app/mods/tmux-prefix/`로 복사합니다. `RECIPE.md`와 미리보기 이미지는 복사할 필요가 없습니다.
-5. `mods/local/tmux-prefix/keys.json`을 앱의 `keys.json`에 **섹션과 키별로 병합**합니다. 원본의 `tmux-prefix/keys.json`은 병합하지 않습니다. 원본 설정은 Ctrl+B를 누를 때마다 패널을 열기 때문입니다.
-6. 기존 `global`, `terminal`, `layout:<이름>`에 `ctrl-b` 바인딩이 있으면 충돌을 해결합니다. 원본 모드를 여는 기존 바인딩은 제거하고, 다른 용도로 쓰는 바인딩은 사용자와 조정합니다.
+3. 기존 `~/.config/herdr-app/keys.json`을 백업합니다. 앱을 아직 실행하지 않은 장비에는 이 파일이 없을 수 있으며, 그때는 5단계에서 로컬 파일을 그대로 복사합니다. 앱에 `mods/tmux-prefix/`가 이미 있으면 원본과 비교하고 덮어쓰지 않습니다. 비교할 때 앱이 자동으로 만드는 `gpui-kit.d.ts`와 `jsconfig.json`은 원본에 없으므로 차이에서 제외합니다.
+
+   ```sh
+   diff -r mods/sources/herdr-layout-examples/tmux-prefix/mods/tmux-prefix \
+     ~/.config/herdr-app/mods/tmux-prefix -x gpui-kit.d.ts -x jsconfig.json
+   ```
+
+4. 앱에 모드가 없으면 원본 모드 폴더를 복사합니다. `RECIPE.md`와 미리보기 이미지는 복사할 필요가 없습니다.
+
+   ```sh
+   mkdir -p ~/.config/herdr-app/mods
+   cp -r mods/sources/herdr-layout-examples/tmux-prefix/mods/tmux-prefix ~/.config/herdr-app/mods/
+   ```
+
+5. `mods/local/tmux-prefix/keys.json`을 앱의 `keys.json`에 **섹션과 키별로 병합**합니다. 원본의 `tmux-prefix/keys.json`은 병합하지 않습니다. 원본 설정은 Ctrl+B를 누를 때마다 패널을 열기 때문입니다. 앱은 `keys.json`을 주석 없는 JSON으로 읽으므로 `jq`로 병합할 수 있습니다. `jq`의 `*` 병합은 같은 섹션의 같은 키를 로컬 값으로 바꾸므로, 먼저 바뀔 키를 확인합니다. 출력이 있으면 해당 키의 기존 용도를 확인한 뒤 진행합니다.
+
+   ```sh
+   keys=~/.config/herdr-app/keys.json
+   local_keys=mods/local/tmux-prefix/keys.json
+   if [ -f "$keys" ]; then
+     # 기존 값과 다르게 바뀔 키를 출력합니다.
+     jq -r -s '.[1] as $new | .[0] | to_entries[] | .key as $s | .value | to_entries[]
+       | .key as $k | select($new[$s][$k]? and $new[$s][$k] != .value) | "\($s): \($k)"' \
+       "$keys" "$local_keys"
+     tmp=$(mktemp) && jq -s '.[0] * .[1]' "$keys" "$local_keys" > "$tmp" && mv "$tmp" "$keys"
+   else
+     mkdir -p ~/.config/herdr-app && cp "$local_keys" "$keys"
+   fi
+   ```
+
+6. `mod:tmux-prefix` 밖에 단독 `ctrl-b` 바인딩이 남아 있으면 충돌을 해결합니다. 키 이름이 달라 5단계의 병합으로는 지워지지 않습니다. 원본 모드를 여는 바인딩은 제거하고, 다른 용도로 쓰는 바인딩은 사용자와 조정합니다.
+
+   ```sh
+   jq -r 'to_entries[] | select(.key != "mod:tmux-prefix") | .key as $s | .value | to_entries[]
+     | select(.key == "ctrl-b") | "\($s): \(.value)"' ~/.config/herdr-app/keys.json
+   ```
 7. `herdr-app check ~/.config/herdr-app/mods/tmux-prefix`를 실행합니다. 설정 파일은 자동으로 다시 로드됩니다. `herdr-app status`와 `keys.error`를 확인하고 실제 키 입력도 검증합니다.
 
 확인할 동작은 패널 없는 접두키 대기, 새 탭과 분할, `Ctrl+B ?`의 안내 패널, `Ctrl+B Ctrl+B`의 실제 키 전달, `Esc` 취소, 일반 문자 입력입니다. `herdr-app check`는 모드의 초기 로드만 검사하므로 단축키 동작 검증을 대신하지 않습니다.
