@@ -2,7 +2,7 @@
 
 ## Purpose and entry points
 
-This repository manages Herdr desktop installation, configuration, and mods. Record work so the setup can be reproduced later; the application source and installed runtime live elsewhere.
+This repository manages Herdr desktop installation, configuration, and mods. Record work so the setup can be reproduced later. Upstream source is pinned in the `herdr-core/` and `herdr-app/` submodules; the installed runtime lives elsewhere.
 
 - Read [README.md](README.md) and [docs/README.md](docs/README.md) first.
 - Follow [docs/setup.md](docs/setup.md) for installation and reproduction, and [docs/configuration.md](docs/configuration.md) for telemetry and update settings.
@@ -11,13 +11,15 @@ This repository manages Herdr desktop installation, configuration, and mods. Rec
 ## Working rules
 
 - Keep user-facing documentation in Korean. Keep these instructions in English; `CLAUDE.md` imports this file.
-- Keep procedures in their canonical documents and dated evidence in `docs/history/YYYY-MM-DD.md`. Link to existing detail instead of duplicating it.
-- Record versions, source revisions, affected paths, reasons, reproduction steps, validation results, and remaining gaps together. Distinguish historical evidence, current checks, and untested behavior.
+- Keep shared documentation focused on reproducing the setup on another machine: version requirements, configuration, commands, rationale, and validation procedures. Keep procedures in their canonical documents and link instead of duplicating them.
+- Maintain dated local work records in `docs/local-history/YYYY-MM-DD.md`, including relevant session references, host-specific paths, backup locations, and validation results. This directory is gitignored except for `.gitkeep`; preserve existing records when reorganizing documentation and never force-add them.
+- Keep local work details out of shared documentation. Describe compatibility limits and untested behavior without implying universal validation.
+- List upstream sources in core, app, then mods order.
 - Preserve existing work. Inspect both the parent repository and submodule before changing them. Propose a commit message and scope first; commit only after the user approves that proposal.
 - Keep upstream code in `mods/sources/` unchanged. Put local configuration or modified copies in `mods/local/`, and pin upstream revisions through the parent repository's gitlink.
 - Before applying configuration, inspect and back up the affected files. Merge JSON by section and key; preserve unrelated settings and resolve conflicting bindings before writing.
 - The default live app home is `~/.config/herdr-app/`; `HERDR_APP_HOME` and `XDG_CONFIG_HOME` may override it. Documentation work alone does not call for reinstalling or changing the running app.
-- Keep credentials, personal runtime state, terminal output, full session transcripts, and host backups out of the repository. Record only the evidence needed to reproduce the setup.
+- Keep credentials, personal runtime state, raw terminal output, full session transcripts, and host backups out of both shared documents and local work records. Record only the evidence needed for reproduction or local follow-up.
 
 ## Useful checks
 
