@@ -14,6 +14,7 @@
 - [통계 전송과 업데이트 설정](docs/configuration.md): 공식 배포 바이너리를 쓸 때 수정할 파일과 설정값, 적용 범위를 설명합니다.
 - [모드 관리](mods/README.md): 외부 원본과 로컬 설정의 관리 규칙을 설명합니다.
 - [Tmux prefix](mods/local/tmux-prefix/README.md): 단축키와 앱에 적용하는 방법을 설명합니다.
+- [테마](themes/README.md): 선택해서 적용할 수 있는 앱 테마와 적용 방법을 설명합니다.
 
 ## 구성
 
@@ -22,6 +23,7 @@ herdr-core/    # Herdr 코어 원본 Git submodule
 herdr-app/     # Herdr 데스크톱 앱 원본 Git submodule
 mods/sources/  # 외부 원본 Git submodule
 mods/local/    # 직접 관리하는 설정과 수정본
+themes/        # 선택해서 적용하는 앱 테마
 scripts/       # 소스 복사·차단 패치·빌드·설치와 검사
 docs/          # 설치·설정과 검증 절차
   local-history/ # Git에서 제외하는 장비별 작업 기록
