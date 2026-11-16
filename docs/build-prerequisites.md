@@ -40,7 +40,7 @@ git submodule update --init --recursive herdr-app
 | Git·tar·Python 3.10 이상 | 필요합니다. | 필요합니다. |
 | Rust·Cargo | 기준은 Rust 1.95.0이며, 스크립트는 1.95.0 이상을 검사합니다. | 같습니다. |
 | Zig | 0.16.0이 필요합니다. | 0.16.0이 필요합니다. |
-| cargo-deny | 의존성 취약점 검사에 사용합니다. 없으면 설치는 진행하되 검사를 건너뛰었다고 경고합니다. 0.19.8에서 확인했습니다. | 같습니다. |
+| cargo-deny | 의존성 취약점 검사에 필요합니다. 없으면 빌드·설치를 중단합니다. 0.19.8에서 확인했습니다. | 같습니다. |
 | C/C++ 빌드 도구 | 필요합니다. | 필요합니다. |
 | clang·공유 libclang·pkg-config | 현재 코어 빌드에서는 별도로 요구하지 않습니다. | bindgen과 GUI 의존성에 필요합니다. |
 | XCB·xkbcommon·Wayland·Vulkan·fontconfig·freetype 개발 파일 | 필요하지 않습니다. | 필요합니다. |
@@ -79,7 +79,7 @@ pkg-config --modversion xcb xkbcommon xkbcommon-x11 wayland-client \
 ./scripts/build-install-app.sh --check
 ```
 
-부족한 도구와 라이브러리를 출력하고 오류 코드로 종료합니다. cargo-deny가 없으면 오류 대신 안내만 출력합니다. 전제조건을 통과하면 대상 소스의 고정 리비전과 작업 트리도 검사합니다. 앱 검사는 같은 `--prefix`의 `bin/herdr-core`가 응답하는 `--private-build` 식별값을 확인합니다. 스크립트는 의존성 다운로드·빌드·설치 명령이나 데몬 시작 명령을 실행하지 않습니다. 버전 확인에 사용하는 도구 자체의 동작은 해당 도구의 설정을 따릅니다.
+부족한 도구와 라이브러리를 출력하고 오류 코드로 종료합니다. 전제조건을 통과하면 대상 소스의 고정 리비전과 작업 트리도 검사합니다. 앱 검사는 같은 `--prefix`의 `bin/herdr-core`가 응답하는 `--private-build` 식별값을 확인합니다. 스크립트는 의존성 다운로드·빌드·설치 명령이나 데몬 시작 명령을 실행하지 않습니다. 버전 확인에 사용하는 도구 자체의 동작은 해당 도구의 설정을 따릅니다.
 
 설치 경로를 바꿀 때에는 사전 검사와 설치, 코어와 앱에 동일한 `--prefix`·`--data-home`을 전달합니다. `--check`는 실제 전체 컴파일이나 GUI 동작을 보장하지 않습니다.
 

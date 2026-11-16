@@ -1,8 +1,0 @@
-# RustSec advisory check run by secure_build.py on the prepared core and app sources.
-# One config for both components: upstream ships a deny.toml only for the core.
-# Findings are warnings during installs and failures with --audit.
-
-[advisories]
-# Add an exception only after reviewing the advisory against the private build:
-# { id = "RUSTSEC-YYYY-NNNN", reason = "why it does not apply" }
-ignore = []

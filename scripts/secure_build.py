@@ -15,7 +15,6 @@ import tempfile
 from secure_policy import PINS, POLICY, apply
 
 ROOT = Path(__file__).resolve().parent.parent
-DENY_CONFIG = ROOT / "scripts/deny.toml"
 
 
 def run(args, **kwargs):
@@ -73,7 +72,7 @@ def zig_command():
 
 def prerequisites(component):
     zig = zig_command()
-    tools = ["git", "tar", "cargo", "rustc", zig, "cc"]
+    tools = ["git", "tar", "cargo", "cargo-deny", "rustc", zig, "cc"]
     if component == "app":
         tools += ["clang", "pkg-config", "c++"]
     problems = ["Missing tool: " + name for name in tools if not shutil.which(name)]
@@ -122,6 +121,10 @@ def require_private_core(prefix):
         raise RuntimeError("Install the patched core first with scripts/build-install-core.sh using the same --prefix")
 
 
+def deny_config(component):
+    return ROOT / "scripts/deny" / f"{component}.toml"
+
+
 def audit(work, component, offline):
     """Check the prepared sources against RustSec advisories; return (error count, finding lines)."""
     if not shutil.which("cargo-deny"):
@@ -129,7 +132,7 @@ def audit(work, component, offline):
     # The advisory database is fetched from GitHub unless --offline uses the cached copy.
     network = ["--offline"] if offline else []
     result = subprocess.run(["cargo", "deny", "--color", "never", "--format", "json", *network, "--locked", "--workspace",
-                             "check", "advisories", "--config", str(DENY_CONFIG), "--hide-inclusion-graph"],
+                             "check", "advisories", "--config", str(deny_config(component)), "--hide-inclusion-graph"],
                             cwd=work / f"herdr-{component}", capture_output=True, text=True)
     summary, findings = None, []
     for line in result.stderr.splitlines():
@@ -143,6 +146,9 @@ def audit(work, component, offline):
         elif item.get("type") == "diagnostic" and fields.get("severity") in ("error", "warning"):
             advisory = fields.get("advisory") or {}
             label = " ".join(filter(None, (advisory.get("id"), advisory.get("package"))))
+            if fields.get("code") == "advisory-not-detected":
+                # A reviewed advisory that no longer matches: its ID is in the first label.
+                label = (fields.get("labels") or [{}])[0].get("span", "") + " (remove from the reviewed list)"
             findings.append(f"{fields['severity']}[{fields.get('code')}] {label + ': ' if label else ''}{fields.get('message')}")
     if summary is None:
         detail = result.stderr.strip()[-500:] or f"exit status {result.returncode}"
@@ -150,21 +156,17 @@ def audit(work, component, offline):
     return summary.get("errors", 0), findings
 
 
-def warn_advisories(work, component, offline):
-    """Run the advisory check without stopping the install; return a closing warning, or None."""
-    try:
-        errors, findings = audit(work, component, offline)
-    except RuntimeError as error:
-        print(f"WARNING: security advisory check did not run: {error}", file=sys.stderr, flush=True)
-        return "WARNING: the security advisory check did not run; see the message before the build."
+def require_reviewed_advisories(work, component, offline):
+    """Stop unless every advisory is recorded as reviewed in scripts/deny/<component>.toml."""
+    config = deny_config(component).relative_to(ROOT)
+    errors, findings = audit(work, component, offline)
     if findings:
-        print(f"Security advisory check for herdr-{component} (scripts/deny.toml):", file=sys.stderr)
+        print(f"Security advisory check for herdr-{component} ({config}):", file=sys.stderr)
         print("\n".join("  " + line for line in findings), file=sys.stderr, flush=True)
-    if not errors:
-        print("Security advisory check: no errors", flush=True)
-        return None
-    return (f"WARNING: herdr-{component} was built with {errors} unresolved security advisories (listed before the build). "
-            f"Run scripts/build-install-{component}.sh --audit for the list.")
+    if errors:
+        raise RuntimeError(f"{errors} unreviewed security advisories in herdr-{component} (listed above). "
+                           f"Review each one and record accepted ones with a reason in {config}")
+    print(f"Security advisory check passed: herdr-{component} has no unreviewed advisories", flush=True)
 
 
 def build(work, manifest, offline, jobs):
@@ -315,8 +317,6 @@ def main():
         if args.component == "app" and not args.build_only:
             require_private_core(prefix)
         if args.check:
-            if not shutil.which("cargo-deny"):
-                print("Note: cargo-deny is not installed; builds will warn that the advisory check did not run")
             print(f"Prerequisites and sources OK: {args.component}")
             return
     base = ROOT / ".build/private"
@@ -327,24 +327,17 @@ def main():
     if args.prepare_only:
         print(f"Prepared reviewed sources and patch: {work / 'private.patch'}")
         return
+    # Advisories nobody has reviewed stop the build; reviewed ones are listed in scripts/deny/.
+    try:
+        require_reviewed_advisories(work, args.component, args.offline)
+    except RuntimeError as error:
+        sys.exit(f"Nothing was built or installed: {error}")
     if args.audit:
-        try:
-            errors, findings = audit(work, args.component, args.offline)
-        except RuntimeError as error:
-            sys.exit(f"Security advisory check did not run: {error}")
-        print("\n".join(findings) or "No advisories")
-        if errors:
-            sys.exit(f"Security advisory check failed: {errors} errors in herdr-{args.component}")
-        print(f"Security advisory check passed: herdr-{args.component}")
         return
-    # Advisories warn but do not stop the build: upstream dependencies cannot be changed here.
-    warning = warn_advisories(work, args.component, args.offline)
-    manifest["advisory_check"] = warning or "no errors"
+    manifest["advisory_check"] = "no unreviewed advisories"
     build(work, manifest, args.offline, args.jobs)
     if not args.build_only:
         install(work, prefix, data, args.component)
-    if warning:
-        print(warning, file=sys.stderr)
 
 
 if __name__ == "__main__":

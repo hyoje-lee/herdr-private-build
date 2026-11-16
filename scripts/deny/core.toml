@@ -1,0 +1,7 @@
+# RustSec advisory check for herdr-core, run by secure_build.py on the patched sources.
+# An advisory not listed in `ignore` stops the build until it is reviewed.
+
+[advisories]
+# Add an advisory only after reviewing it against the private build:
+# { id = "RUSTSEC-YYYY-NNNN", reason = "why the risk is accepted" }
+ignore = []

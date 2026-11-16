@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 import shutil
@@ -184,7 +185,7 @@ class AuditTests(unittest.TestCase):
                                     "warning[yanked] detected yanked crate"])
         argv = runner.call_args.args[0]
         self.assertIn("--offline", argv)
-        self.assertEqual(argv[argv.index("--config") + 1], str(builder.DENY_CONFIG))
+        self.assertEqual(argv[argv.index("--config") + 1], str(builder.ROOT / "scripts/deny/app.toml"))
         self.assertEqual(runner.call_args.kwargs["cwd"], Path("/work/herdr-app"))
 
     def test_missing_summary_is_an_error_not_a_pass(self):
@@ -193,20 +194,37 @@ class AuditTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "did not report"):
                 builder.audit(Path("/work"), "core", offline=False)
 
-    def test_install_warning_does_not_raise(self):
-        with patch.object(builder.shutil, "which", return_value=None), \
-             patch("sys.stderr", new_callable=io.StringIO):
-            self.assertIn("did not run", builder.warn_advisories(Path("/work"), "core", offline=False))
+    def test_unreviewed_advisory_or_missing_check_stops_the_build(self):
+        with patch.object(builder.shutil, "which", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "cargo-deny is not installed"):
+                builder.require_reviewed_advisories(Path("/work"), "core", offline=False)
         summary = {"type": "summary", "fields": {"advisories": {"errors": 1}}}
         with patch.object(builder.shutil, "which", return_value="/tool/cargo-deny"), \
              patch.object(builder.subprocess, "run", return_value=self.deny(self.vulnerability, summary)), \
-             patch("sys.stderr", new_callable=io.StringIO):
-            self.assertIn("1 unresolved", builder.warn_advisories(Path("/work"), "app", offline=False))
-        clean = {"type": "summary", "fields": {"advisories": {"errors": 0}}}
+             patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            with self.assertRaisesRegex(RuntimeError, "1 unreviewed .* scripts/deny/app.toml"):
+                builder.require_reviewed_advisories(Path("/work"), "app", offline=False)
+        self.assertIn("RUSTSEC-2023-0071", stderr.getvalue())
+
+    def test_warnings_alone_do_not_stop_the_build(self):
+        summary = {"type": "summary", "fields": {"advisories": {"errors": 0, "warnings": 2}}}
+        resolved = {"type": "diagnostic", "fields": {"severity": "warning", "code": "advisory-not-detected",
+                                                     "message": "advisory was not encountered",
+                                                     "labels": [{"span": "RUSTSEC-2020-0071"}, {"span": "reason"}]}}
         with patch.object(builder.shutil, "which", return_value="/tool/cargo-deny"), \
-             patch.object(builder.subprocess, "run", return_value=self.deny(clean, returncode=0)), \
+             patch.object(builder.subprocess, "run", return_value=self.deny(self.yanked, resolved, summary, returncode=0)), \
+             patch("sys.stderr", new_callable=io.StringIO) as stderr, \
              patch("sys.stdout", new_callable=io.StringIO):
-            self.assertIsNone(builder.warn_advisories(Path("/work"), "core", offline=False))
+            builder.require_reviewed_advisories(Path("/work"), "core", offline=False)
+        self.assertIn("yanked", stderr.getvalue())
+        self.assertIn("RUSTSEC-2020-0071 (remove from the reviewed list)", stderr.getvalue())
+
+    @unittest.skipIf(sys.version_info < (3, 11), "tomllib needs Python 3.11")
+    def test_reviewed_advisory_lists_parse(self):
+        import tomllib
+        for component in ("core", "app"):
+            entries = tomllib.loads(builder.deny_config(component).read_text())["advisories"]["ignore"]
+            self.assertTrue(all(entry["id"].startswith("RUSTSEC-") and entry["reason"] for entry in entries))
 
 
 class PatchTests(unittest.TestCase):
