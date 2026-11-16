@@ -8,11 +8,11 @@
 
 | 테마 | 파일 | 설명 |
 | --- | --- | --- |
-| Ubuntu | [ubuntu.json](ubuntu.json) | Ubuntu 기본 터미널(GNOME Terminal)과 같은 색입니다. 어두운 테마입니다. |
+| Ubuntu | [ubuntu.json](ubuntu.json) | Ubuntu 기본 터미널(GNOME Terminal)과 같은 색입니다. 탭 바와 메뉴까지 창 전체를 같은 배경색으로 칠하는 평평한 어두운 테마입니다. |
 
 ### Ubuntu
 
-Ubuntu 24.04의 GNOME Terminal 3.52 기본 프로필에서 색을 가져왔습니다. 이 프로필은 시스템 테마 색상을 따르므로, 배경 `#300a24`(aubergine)와 흰색 글자는 Yaru GTK 테마의 `terminal-window .terminal-screen` 규칙에서 가져왔습니다. ANSI 16색은 프로필에 저장된 GNOME 기본 팔레트입니다. GNOME Terminal에는 대응하는 값이 없어 선택 영역 색 `#5e2750`은 따로 정했습니다. 다른 Ubuntu 버전이나 다른 터미널 프로필에서는 색이 다를 수 있습니다.
+Ubuntu 24.04의 GNOME Terminal 3.52 기본 프로필에서 색을 가져왔습니다. 이 프로필은 시스템 테마 색상을 따르므로, 배경 `#300a24`(aubergine)와 흰색 글자는 Yaru GTK 테마의 `terminal-window .terminal-screen` 규칙에서 가져왔습니다. ANSI 16색은 프로필에 저장된 GNOME 기본 팔레트입니다. 선택 영역 색 `#b34cb3`은 Yaru-magenta 테마의 선택 배경색(`theme_selected_bg_color`)입니다. `colors`는 `chrome`(사이드바·바), `canvas`(카드 뒤), `surface`, `popover`, `raised`를 모두 배경색으로 고정합니다. 그래서 앱 UI가 터미널과 같은 색으로 보입니다. `border`, `hover`, `selected`는 앱이 계산한 값을 그대로 쓰므로 경계선과 강조 표시는 남습니다. 다른 Ubuntu 버전이나 다른 터미널 프로필에서는 색이 다를 수 있습니다.
 
 ## 적용 순서
 
