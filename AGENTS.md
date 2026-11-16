@@ -7,6 +7,7 @@ This repository manages Herdr desktop installation, configuration, and mods. Rec
 - Read [README.md](README.md) and [docs/README.md](docs/README.md) first.
 - Follow [docs/setup.md](docs/setup.md) for installation and reproduction, and [docs/configuration.md](docs/configuration.md) for telemetry and update settings.
 - Follow [mods/README.md](mods/README.md) for mod management and each `mods/local/<name>/README.md` for its application procedure.
+- Before private builds, follow [docs/build-prerequisites.md](docs/build-prerequisites.md) to investigate the component's pinned build definitions and check local requirements. Use `scripts/build-install-core.sh` and `scripts/build-install-app.sh` separately; see [docs/private-build.md](docs/private-build.md) and [docs/source-audit.md](docs/source-audit.md). Never bypass revision/context checks or modify upstream submodules to make a patch pass.
 
 ## Working rules
 
@@ -37,4 +38,4 @@ git diff --check
 
 Use `git submodule update --init --recursive` to prepare the pinned upstream source. For mod changes, run `herdr-app check <mod-folder>`, inspect the app's `keys.error` and `settings.error`, and test affected shortcuts in the GUI. A successful initial mod load does not validate keyboard behavior. Process or socket visibility may be limited by the execution sandbox; do not infer that the app is stopped from an empty process list.
 
-There is no repository-wide build or test suite. For documentation changes, check links and consistency with actual files. If running Python, activate the root `.venv` first when it exists.
+For installer changes, run `python3 -m unittest discover -s scripts -p 'test_secure_build.py'` and both component scripts with `--prepare-only`. Use `--check` for component prerequisites. Full build requirements and policy tests are in the private-build guide. For documentation changes, check links and consistency with actual files. If running Python, activate the root `.venv` first when it exists.

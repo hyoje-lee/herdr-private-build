@@ -1,2 +1,4 @@
 /docs/local-history/*
 !/docs/local-history/.gitkeep
+/.build/
+/scripts/__pycache__/
