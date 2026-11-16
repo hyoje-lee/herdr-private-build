@@ -67,4 +67,12 @@ git submodule foreach --recursive 'git status --short'
 
 실제 빌드 과정은 코어의 라이브러리 테스트와 앱의 바이너리 테스트 중 `private_policy_`만 실행합니다. 전송 URL을 강제로 지정하고 가짜 `curl`을 PATH 앞에 배치해, 전송 경로가 실행되면 설치를 중단합니다. 앱·코어의 `--private-build` 식별값도 검사합니다. 이 검사는 전체 GUI·SSH 통합 검증을 대신하지 않습니다.
 
+설치 후에는 PATH에서 찾는 실행 파일이 차단 빌드인지 확인합니다. 두 명령 모두 `herdr-private-v1`을 출력해야 하며, 공식 바이너리는 이 값을 출력하지 않습니다. 앱을 실행한 뒤에는 `herdr-app status`의 `errors`가 비어 있는지 확인합니다.
+
+```sh
+command -v herdr-core hc herdr-app
+herdr-core --private-build
+herdr-app --private-build
+```
+
 실제 적용 환경에서는 GUI를 실행해 통계와 업데이트가 비활성 상태인지, 기본 단축키와 SSH 연결이 동작하는지 확인합니다. 외부 통신을 관찰할 때에는 Herdr 자체 요청과 SSH·사용자 프로그램의 요청을 구분하고, 프롬프트나 코드가 포함될 수 있는 패킷 본문을 공유 문서에 기록하지 않습니다.

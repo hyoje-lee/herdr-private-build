@@ -2,10 +2,11 @@
 
 ## Purpose and entry points
 
-This repository manages Herdr desktop installation, configuration, and mods. Record work so the setup can be reproduced later. Upstream source is pinned in the `herdr-core/` and `herdr-app/` submodules; the installed runtime lives elsewhere.
+This repository builds Herdr (core and desktop app) from pinned upstream source instead of using official release binaries, and patches the build so Herdr itself sends nothing outward: no telemetry, feedback, update checks, update or core downloads, or direct mod network access. Traffic from programs the user runs inside Herdr (Claude Code, Codex, SSH and similar) is out of scope. The repository also keeps the Herdr configuration and mods, and records work so the setup can be reproduced on another machine. Upstream source is pinned in the `herdr-core/` and `herdr-app/` submodules; the installed runtime lives elsewhere.
 
 - Read [README.md](README.md) and [docs/README.md](docs/README.md) first.
-- Follow [docs/setup.md](docs/setup.md) for installation and reproduction, and [docs/configuration.md](docs/configuration.md) for telemetry and update settings.
+- Never fall back to official release binaries or the official installer, and keep every change compatible with blocking Herdr's own outbound traffic.
+- Follow [docs/setup.md](docs/setup.md) for installation and reproduction, starting with its private build section. [docs/configuration.md](docs/configuration.md) applies only to official binaries.
 - Follow [mods/README.md](mods/README.md) for mod management and each `mods/local/<name>/README.md` for its application procedure.
 - Before private builds, follow [docs/build-prerequisites.md](docs/build-prerequisites.md) to investigate the component's pinned build definitions and check local requirements. Use `scripts/build-install-core.sh` and `scripts/build-install-app.sh` separately; see [docs/private-build.md](docs/private-build.md) and [docs/source-audit.md](docs/source-audit.md). Never bypass revision/context checks or modify upstream submodules to make a patch pass.
 
