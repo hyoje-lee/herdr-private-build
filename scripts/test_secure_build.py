@@ -133,6 +133,112 @@ class InstallTests(unittest.TestCase):
             self.assertIn(f'Exec="{prefix / "bin/herdr-app"}"', desktop)
             self.assertTrue((data / "icons/hicolor/scalable/apps/herdr-app.svg").is_file())
 
+    def windows_fixture(self, root):
+        work = self.fixture(root)
+        for name in ("herdr-core", "herdr-app"):
+            shutil.copy2(work / "target/release" / name, work / "target/release" / f"{name}.exe")
+        for path in builder.windows.CONPTY_FILES:
+            (work / "target/release" / path).parent.mkdir(parents=True, exist_ok=True)
+            (work / "target/release" / path).write_text("conpty " + path)
+        notices = work / "herdr-core/distribution/windows"
+        notices.mkdir(parents=True)
+        (notices / "Microsoft.Windows.Console.ConPTY-LICENSE.txt").write_text("license")
+        return work
+
+    def windows(self, root, path_before=None):
+        """Run the Windows code paths here, with the registry and the shortcut COM call faked."""
+        def shortcut(link, target):
+            Path(link).write_text(f"shortcut to {target}")
+        self.path_calls = []
+        stack = [patch.object(builder, "WINDOWS", True),
+                 patch.object(builder.windows, "start_menu", return_value=root / "start"),
+                 patch.object(builder.windows, "create_shortcut", side_effect=shortcut),
+                 patch.object(builder.windows, "add_to_user_path", side_effect=lambda d: self.path_calls.append(d) or path_before),
+                 patch.object(builder.windows, "restore_user_path", side_effect=lambda before: self.path_calls.append(("restore", before)))]
+        for item in stack:
+            item.start()
+            self.addCleanup(item.stop)
+
+    def test_windows_install_uses_upstream_folders(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            work = self.windows_fixture(root)
+            prefix, data = root / "Programs", root / "Local"
+            self.windows(root, path_before={"value": "C:\\old", "type": 2})
+            (prefix / "herdr-core").mkdir(parents=True)
+            (prefix / "herdr-core/herdr-core.exe").write_text("official core")
+            builder.install(work, prefix, data, "core")
+            core = prefix / "herdr-core"
+            self.assertTrue(builder.is_private(core / "herdr-core.exe"))
+            self.assertEqual(os.stat(core / "hc.exe").st_ino, os.stat(core / "herdr-core.exe").st_ino)
+            self.assertEqual((core / "conpty/x64/OpenConsole.exe").read_text(), "conpty conpty/x64/OpenConsole.exe")
+            self.assertTrue((core / "THIRD-PARTY-NOTICES/Microsoft.Windows.Console.ConPTY-LICENSE.txt").is_file())
+            self.assertFalse(list(core.glob(".herdr-old-*")))
+            self.assertFalse((prefix / "bin").exists())
+            record = json.loads(next((data / "herdr-build/backups").glob("core-*/restore.json")).read_text())
+            self.assertEqual(Path(record[0]["backup"]).read_text(), "official core")
+            self.assertEqual(record[-1], {"user_path": str(core), "previous": {"value": "C:\\old", "type": 2}})
+
+            builder.install(work, prefix, data, "app")
+            app = prefix / "herdr-app"
+            self.assertTrue(builder.is_private(app / "herdr-app.exe"))
+            self.assertTrue((app / "herdr-app.svg").is_file())
+            self.assertEqual((root / "start/Herdr.lnk").read_text(), f"shortcut to {app / 'herdr-app.exe'}")
+            self.assertEqual(self.path_calls, [core, app])
+
+    def test_windows_app_requires_core_in_sibling_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            work = self.windows_fixture(root)
+            prefix, data = root / "Programs", root / "Local"
+            self.windows(root)
+            (prefix / "bin").mkdir(parents=True)
+            shutil.copy2(work / "target/release/herdr-core.exe", prefix / "bin/herdr-core.exe")
+            with self.assertRaisesRegex(RuntimeError, r"build-install-core\.ps1"):
+                builder.install(work, prefix, data, "app")
+            self.assertFalse((prefix / "herdr-app").exists())
+
+    def test_windows_failed_file_or_path_step_restores_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            work = self.windows_fixture(root)
+            prefix, data = root / "Programs", root / "Local"
+            self.windows(root)
+            (prefix / "herdr-core").mkdir(parents=True)
+            (prefix / "herdr-core/herdr-core.exe").write_text("official core")
+            real_replace = os.replace
+
+            def failing_replace(source, target):
+                if Path(target).name == "private.patch":
+                    raise OSError("disk full")
+                return real_replace(source, target)
+
+            # The PATH change comes after the files, so fail it there instead.
+            with patch.object(builder.windows, "add_to_user_path", side_effect=OSError("registry denied")):
+                with self.assertRaisesRegex(OSError, "registry denied"):
+                    builder.install(work, prefix, data, "core")
+            self.assertEqual((prefix / "herdr-core/herdr-core.exe").read_text(), "official core")
+            self.assertFalse((prefix / "herdr-core/hc.exe").exists())
+            with patch.object(builder.os, "replace", side_effect=failing_replace):
+                with self.assertRaises(OSError):
+                    builder.install(work, prefix, data, "core")
+            self.assertEqual((prefix / "herdr-core/herdr-core.exe").read_text(), "official core")
+            self.assertEqual(self.path_calls, [])
+
+    def test_windows_running_file_is_renamed_aside(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "herdr-core.exe"
+            target.write_text("running")
+            new = Path(tmp) / "new"
+            new.write_text("new")
+            leftovers = []
+            with patch.object(builder, "WINDOWS", True), \
+                 patch.object(Path, "unlink", side_effect=PermissionError("in use")):
+                builder.place(new, target, "stamp", leftovers)
+            self.assertEqual(target.read_text(), "new")
+            self.assertEqual(leftovers, [Path(tmp) / ".herdr-old-stamp-herdr-core.exe"])
+            self.assertEqual(leftovers[0].read_text(), "running")
+
     def test_unpatched_binary_is_not_private(self):
         with tempfile.TemporaryDirectory() as tmp:
             binary = Path(tmp) / "herdr-core"
@@ -164,6 +270,28 @@ class PrerequisiteTests(unittest.TestCase):
             runner.assert_not_called()
             with self.assertRaisesRegex(RuntimeError, "clang"):
                 builder.prerequisites("app")
+
+
+    def test_windows_checks_msvc_llvm_and_sdk_instead_of_unix_tools(self):
+        tools = lambda name: None if name in ("cc", "tar", "pkg-config", "fxc.exe") else "/tool/" + name
+        versions = lambda argv: "rustc 1.95.0 (test)" if argv[0] == "rustc" and argv[1] == "--version" else (
+            "host: x86_64-pc-windows-msvc" if argv[0] == "rustc" else "0.16.0")
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(builder, "WINDOWS", True), \
+             patch.dict(os.environ, {"SystemRoot": tmp, "ProgramFiles(x86)": tmp, "LIBCLANG_PATH": tmp}), \
+             patch.object(builder.shutil, "which", side_effect=tools), \
+             patch.object(builder, "output", side_effect=versions):
+            with self.assertRaises(RuntimeError) as core:
+                builder.prerequisites("core")
+            self.assertNotIn("Missing tool: cc", str(core.exception))
+            self.assertIn("tar.exe", str(core.exception))
+            self.assertIn("MSVC", str(core.exception))
+            self.assertNotIn("fxc", str(core.exception))
+            with self.assertRaises(RuntimeError) as app:
+                builder.prerequisites("app")
+            self.assertIn("libclang.dll", str(app.exception))
+            self.assertIn("fxc.exe", str(app.exception))
+            self.assertNotIn("pkg-config", str(app.exception))
 
 
 class AuditTests(unittest.TestCase):
@@ -251,6 +379,9 @@ class PatchTests(unittest.TestCase):
             self.source_copy(root)
             diff = apply(root)
             self.assertIn("NetworkGrant::Denied", diff)
+            # The app finds only the core installed with it: same folder on Linux, sibling folder on Windows.
+            self.assertIn('Some(d.join("herdr-core"))', diff)
+            self.assertIn('programs.join("herdr-core").join("herdr-core.exe")', diff)
             self.assertIn("Self-update disabled in private build", diff)
             self.assertIn("private_policy_download", diff)
             with self.assertRaises(RuntimeError):

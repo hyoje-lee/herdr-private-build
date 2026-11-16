@@ -24,7 +24,7 @@ ignore = [
     { id = "RUSTSEC-2026-0391", reason = "zstd context reuse: mod JS compression only; accepted, see source-audit.md" },
     { id = "RUSTSEC-2026-0398", reason = "zstd-safe seekable: mod JS compression only; accepted, see source-audit.md" },
     { id = "RUSTSEC-2026-0403", reason = "zstd-safe legacy frame: mod JS compression only; accepted, see source-audit.md" },
-    { id = "RUSTSEC-2026-0410", reason = "zstd-sys WebAssembly allocator shim: not built for native Linux targets" },
+    { id = "RUSTSEC-2026-0410", reason = "zstd-sys WebAssembly allocator shim: not built for native Linux or Windows targets" },
 
     # Unmaintained crates without a known vulnerability.
     { id = "RUSTSEC-2025-0141", reason = "bincode unmaintained (via syntect); no known vulnerability" },

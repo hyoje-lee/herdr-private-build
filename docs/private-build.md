@@ -4,7 +4,7 @@
 
 ## 빌드와 설치
 
-먼저 [설치 전 확인 절차](build-prerequisites.md)에 따라 사용할 구성요소의 도구·라이브러리·기존 설치 상태를 확인합니다. Linux x86_64 또는 aarch64에서 코어와 앱을 **각각 별도의 명령으로** 빌드·설치합니다.
+먼저 [설치 전 확인 절차](build-prerequisites.md)에 따라 사용할 구성요소의 도구·라이브러리·기존 설치 상태를 확인합니다. Linux x86_64·aarch64 또는 Windows x86_64에서 코어와 앱을 **각각 별도의 명령으로** 빌드·설치합니다. Windows 절차는 아래 [Windows에서 설치](#windows에서-설치)에 있습니다.
 
 ```sh
 # 코어만 빌드·설치합니다.
@@ -49,9 +49,9 @@ clippy·rustfmt·전체 테스트 스위트는 실행하지 않습니다. 이 �
 | `--build-only` | 빌드와 정책 테스트까지 수행하고 설치하지 않습니다. |
 | `--audit` | 소스 복사와 패치 후 의존성 취약점 검사만 수행합니다. 검토 목록에 없는 권고가 있으면 오류 코드로 종료합니다. 빌드·설치는 하지 않으며, 다른 실행 모드 옵션과 함께 쓸 수 없습니다. |
 | `--jobs 2` | 메모리에 맞춰 동시 빌드 수를 조절합니다. 기본값은 최대 4입니다. |
-| `--prefix /절대/경로` | 바이너리를 해당 경로의 `bin/`에 설치합니다. 기본값은 `~/.local`입니다. 코어와 앱에 같은 값을 사용합니다. |
-| `--data-home /절대/경로` | 데스크톱 실행 항목·아이콘·백업·빌드 기록 위치를 지정합니다. 기본값은 `XDG_DATA_HOME` 또는 `~/.local/share`입니다. |
-| `--offline` | Cargo를 `--frozen`으로 실행하고, 취약점 검사는 캐시한 RustSec DB를 사용합니다. Zig 패키지와 RustSec DB도 캐시에 있어야 합니다. 이 옵션은 OS 수준의 네트워크 격리가 아닙니다. |
+| `--prefix /절대/경로` | 바이너리를 해당 경로의 `bin/`에 설치합니다. 기본값은 `~/.local`입니다. Windows에서는 해당 경로의 `herdr-core\`·`herdr-app\`에 설치하며 기본값은 `%LOCALAPPDATA%\Programs`입니다. 코어와 앱에 같은 값을 사용합니다. |
+| `--data-home /절대/경로` | 데스크톱 실행 항목·아이콘·백업·빌드 기록 위치를 지정합니다. 기본값은 `XDG_DATA_HOME` 또는 `~/.local/share`입니다. Windows에서는 백업·빌드 기록 위치만 지정하며 기본값은 `%LOCALAPPDATA%`입니다. |
+| `--offline` | Cargo를 `--frozen`으로 실행하고, 취약점 검사는 캐시한 RustSec DB를 사용합니다. Zig 패키지와 RustSec DB도 캐시에 있어야 합니다. Windows 코어는 임시 폴더에 받아 둔 ConPTY 파일도 필요합니다. 이 옵션은 OS 수준의 네트워크 격리가 아닙니다. |
 
 ## 설치 후 사용하는 환경
 
@@ -64,6 +64,35 @@ clippy·rustfmt·전체 테스트 스위트는 실행하지 않습니다. 이 �
 - 설치 후에는 [공식 설치 스크립트](setup.md#새-환경에서-수행할-순서)를 실행하지 않습니다. 이 스크립트는 `~/.local/bin/herdr-app`와 `herdr-app.desktop`을 공식 앱으로 다시 작성합니다. 이미 실행했다면 앱 스크립트를 다시 실행해 복구합니다.
 
 설치 파일을 되돌리려면 앱과 코어를 정상 종료한 뒤 `restore.json`에 기록된 파일을 원래 위치에 복원합니다. 백업이 `null`인 항목은 이번 설치가 새로 만든 파일입니다. 이후 수정한 파일이 있다면 먼저 비교합니다.
+
+## Windows에서 설치
+
+Windows 지원은 upstream의 Windows 설치 스크립트(코어 `distribution/install.ps1`, 앱 `scripts/install-windows.ps1`)와 같은 배치를 따릅니다. 이 저장소에서는 Linux에서 단위 테스트와 패치 적용까지만 확인했습니다. Windows에서 실제로 빌드·설치·실행하는 과정은 검증하지 않았습니다.
+
+PowerShell에서 저장소 루트로 이동한 뒤 Linux와 같은 순서로 실행합니다. 옵션도 같습니다.
+
+```powershell
+.\scripts\build-install-core.ps1 --check
+.\scripts\build-install-core.ps1
+.\scripts\build-install-app.ps1 --check
+.\scripts\build-install-app.ps1
+```
+
+실행 정책 때문에 스크립트가 막히면 `powershell -ExecutionPolicy Bypass -File .\scripts\build-install-core.ps1`처럼 실행합니다. 두 스크립트는 Linux와 같은 `secure_build.py`를 실행합니다.
+
+| 설치 위치 | 내용 |
+| --- | --- |
+| `%LOCALAPPDATA%\Programs\herdr-core\` | `herdr-core.exe`, 이를 가리키는 하드 링크 `hc.exe`, Microsoft ConPTY(`conpty\`), ConPTY 고지(`THIRD-PARTY-NOTICES\`)입니다. 사용자 PATH에 추가합니다. |
+| `%LOCALAPPDATA%\Programs\herdr-app\` | `herdr-app.exe`와 아이콘입니다. 사용자 PATH에 추가합니다. |
+| `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Herdr.lnk` | 시작 메뉴 바로가기입니다. |
+| `%LOCALAPPDATA%\herdr-build\` | 백업, `manifest.json`, `private.patch`입니다. |
+| `%USERPROFILE%\.config\herdr-app\` | 앱 설정과 모드입니다. 앱이 정하는 위치이며 설치 스크립트는 건드리지 않습니다. |
+
+- 패치된 앱은 자신의 폴더와 나란히 있는 `herdr-core\herdr-core.exe`만 사용합니다. 공식 설치본과 같은 위치이므로 공식 파일은 백업한 뒤 교체합니다.
+- 코어를 빌드한 뒤 upstream의 `scripts/fetch-conpty.ps1`로 ConPTY를 내려받습니다. 이 스크립트는 고정된 버전과 SHA-256으로 파일을 확인합니다. 빌드 의존성 다운로드에 해당하며, 내려받은 파일의 SHA-256은 `manifest.json`에 기록됩니다.
+- Windows는 실행 중인 파일을 덮어쓸 수 없습니다. 그래서 실행 중인 코어 서버나 ConPTY 파일은 `.herdr-old-<시각>-<이름>`으로 이름을 바꿔 옆에 두고 새 파일을 설치합니다. 지우지 못한 파일은 설치 출력에 표시되므로, Herdr를 다시 시작한 뒤 직접 지웁니다. 이미 실행 중인 코어는 `hc server restart`로 재시작해야 새 바이너리를 사용합니다.
+- 사용자 PATH에 설치 폴더가 없으면 추가하고, 이전 값을 `restore.json`의 `user_path` 항목에 기록합니다. 설치에 실패하면 이 값도 되돌립니다.
+- upstream의 공식 설치 스크립트(`irm https://releases.herdr.dev/... | iex`)는 실행하지 않습니다. 실행했다면 두 스크립트를 다시 실행해 차단 빌드로 복구합니다.
 
 ## SSH와 모드
 
@@ -80,11 +109,27 @@ git submodule update --init --recursive herdr-core
 
 설치 스크립트는 실행 중인 원격 코어를 재시작하지 않습니다. 기존 프로세스는 덮어쓰기 전의 바이너리로 계속 실행되며, Linux에서는 `/proc/<pid>/exe`가 `(deleted)`로 표시됩니다. `hc server status`의 `live`로 실행 중인 터미널을 확인한 뒤 원격 호스트에서 `hc server restart`를 실행합니다. 재시작하면 실행 중인 원격 프로그램이 종료되고, keep으로 설정한 터미널은 새 셸로 다시 열립니다.
 
-설치된 코어는 시스템의 libc와 libgcc_s만 사용합니다. 다시 빌드할 계획이 없다면 설치 후 `.build/private/`, Zig 캐시, Rust·Zig 도구를 지워도 실행에는 영향이 없습니다. 다시 빌드할 때에는 [전제조건](build-prerequisites.md)을 다시 준비합니다.
+Linux에 설치된 코어는 시스템의 libc와 libgcc_s만 사용합니다. 다시 빌드할 계획이 없다면 설치 후 `.build/private/`, Zig 캐시, Rust·Zig 도구를 지워도 실행에는 영향이 없습니다. 다시 빌드할 때에는 [전제조건](build-prerequisites.md)을 다시 준비합니다.
 
 기본 모드의 직접 HTTP·TCP·WebSocket 권한과 Git 의존성 자동 다운로드는 차단합니다. 모드의 `herdr.exec`·`herdr.hc`, 사용자가 지정하는 실행 프로그램과 SSH는 유지됩니다. 따라서 임의의 외부 모드를 안전하게 격리하는 샌드박스는 아닙니다. 보안 환경에서는 사용하는 모드와 실행 명령도 검토해야 합니다.
 
 외부 예제 모드는 자동 설치하지 않습니다. 특히 `threads` 예제에는 `gh pr list`를 주기적으로 실행하는 기능이 있으므로, 자동 외부 질의를 원하지 않는 환경에서는 그대로 복사하지 않습니다. 자세한 근거는 [소스 검토](source-audit.md)에 있습니다.
+
+### WSL을 Windows 앱의 머신으로 연결
+
+Windows 앱에서 WSL 배포판의 터미널을 쓰려면 WSL에는 코어만 설치합니다. 앱과 GUI 라이브러리는 필요하지 않습니다. 근거는 upstream [머신 문서](../herdr-core/docs/machines.md#use-another-way-in)입니다.
+
+1. WSL 안에서 위 명령으로 코어만 빌드·설치합니다. Windows와 OS가 달라서 Windows 코어는 자신을 복사하지 않고 공식 Linux 빌드를 내려받으려 하는데, 차단 빌드는 이 다운로드를 거부합니다. 따라서 WSL 코어를 먼저 설치해야 합니다.
+2. Windows에서 PowerShell 7(`pwsh`)을 열고 머신을 추가합니다. `Ubuntu`는 `wsl -l`에 표시되는 배포판 이름으로 바꿉니다.
+
+   ```powershell
+   hc machine add --via 'wsl.exe -d Ubuntu -e sh -c' --name wsl
+   hc machine ls
+   ```
+
+3. 앱 사이드바에서 `wsl` 머신에 space를 만들거나 `herdr-app do space.new --machine wsl --folder <WSL 경로>`를 실행합니다.
+
+Windows 코어는 WSL에서 `command -v herdr-core`를 먼저 시도하고, 찾지 못하면 `$HOME/.local/bin/herdr-core`를 실행합니다([근거](../herdr-core/crates/herdr-core/src/machines.rs)의 `NOT_HERE` 부분). 따라서 Linux 설치 스크립트의 기본 경로를 쓰면 PATH를 따로 설정하지 않아도 됩니다. 양쪽 코어는 같은 고정 커밋으로 빌드해야 버전이 맞습니다. 다음 사항은 검증하지 않았습니다. CLI로 추가한 `--via` 머신이 앱 사이드바에 나타나는지, 그리고 `wsl --shutdown`이나 Windows 재부팅 뒤에 WSL 터미널이 어떻게 복구되는지입니다.
 
 ## 검증
 
@@ -100,7 +145,7 @@ git submodule foreach --recursive 'git status --short'
 
 루트 `.venv`가 있다면 Python 검사 전에 `source .venv/bin/activate`를 실행합니다. `--audit`이 실패하면 [새 권고 처리 순서](#의존성-취약점-검사)를 따릅니다.
 
-실제 빌드 과정은 코어의 라이브러리 테스트와 앱의 바이너리 테스트 중 `private_policy_`만 실행합니다. 전송 URL을 강제로 지정하고 가짜 `curl`을 PATH 앞에 배치해, 전송 경로가 실행되면 설치를 중단합니다. 앱·코어의 `--private-build` 식별값도 검사합니다. 이 검사는 전체 GUI·SSH 통합 검증을 대신하지 않습니다.
+실제 빌드 과정은 코어의 라이브러리 테스트와 앱의 바이너리 테스트 중 `private_policy_`만 실행합니다. 전송 URL을 강제로 지정하고 가짜 `curl`을 PATH 앞에 배치해, 전송 경로가 실행되면 설치를 중단합니다. Windows는 PATH에서 `curl.exe`만 찾고, 앱은 System32의 `curl`을 직접 호출합니다. 그래서 Windows에서는 가짜 `curl`을 두지 않고 차단 함수의 반환값만 검사합니다. 앱·코어의 `--private-build` 식별값도 검사합니다. 이 검사는 전체 GUI·SSH 통합 검증을 대신하지 않습니다.
 
 설치 후에는 PATH에서 찾는 실행 파일이 차단 빌드인지 확인합니다. 두 명령 모두 `herdr-private-v1`을 출력해야 하며, 공식 바이너리는 이 값을 출력하지 않습니다. 앱을 실행한 뒤에는 `herdr-app status`의 `errors`가 비어 있는지 확인합니다.
 
@@ -108,6 +153,14 @@ git submodule foreach --recursive 'git status --short'
 command -v herdr-core hc herdr-app
 herdr-core --private-build
 herdr-app --private-build
+```
+
+Windows에서는 새 PowerShell 창에서 확인합니다.
+
+```powershell
+Get-Command herdr-core, hc, herdr-app | Select-Object Source
+herdr-core --private-build
+herdr-app --private-build | Write-Output
 ```
 
 실제 적용 환경에서는 GUI를 실행해 통계와 업데이트가 비활성 상태인지, 기본 단축키와 SSH 연결이 동작하는지 확인합니다. 외부 통신을 관찰할 때에는 Herdr 자체 요청과 SSH·사용자 프로그램의 요청을 구분하고, 프롬프트나 코드가 포함될 수 있는 패킷 본문을 공유 문서에 기록하지 않습니다.

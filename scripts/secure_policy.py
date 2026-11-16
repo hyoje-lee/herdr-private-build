@@ -57,9 +57,12 @@ def apply(root: Path, component=None) -> str:
     gate(app + "core_bin.rs", "pub fn install() -> Result<PathBuf, String> {", DENIED)
     gate(app + "core_bin.rs", "pub fn update_to(at_least: Option<&str>) -> Result<String, String> {", DENIED)
     gate(app + "core_bin.rs", "fn ensure_core_bundle(version: &str) -> Result<(), String> {", DENIED)
-    # Use the core shipped alongside this app, not an old PATH/settings binary.
+    # Use the core installed with this app, not an old PATH/settings binary: the same folder on Linux,
+    # and on Windows upstream's sibling folder (Programs\herdr-app beside Programs\herdr-core).
     gate(app + "core_bin.rs", "pub fn find(configured: Option<&str>) -> Option<PathBuf> {",
-         'std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("herdr-core"))).filter(|p| p.is_file())')
+         'std::env::current_exe().ok().and_then(|p| p.parent().and_then(|d| if cfg!(windows) '
+         '{ d.parent().map(|programs| programs.join("herdr-core").join("herdr-core.exe")) } '
+         'else { Some(d.join("herdr-core")) })).filter(|p| p.is_file())')
     gate(core + "releases.rs", "fn curl(url: &str, to: &Path) -> Result<(), RpcError> {",
          'Err(RpcError::new("refused", "Downloads disabled in private build", "Build the private core for the destination platform"))')
     # --from must not replace the hardened binary with an ordinary release either.

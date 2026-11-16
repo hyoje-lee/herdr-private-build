@@ -13,6 +13,8 @@ Herdr 자체의 통계·업데이트 통신을 차단한 소스 빌드는 [전�
 5. [검증 절차](private-build.md#검증)로 설치된 바이너리와 앱 상태를 확인합니다.
 6. 필요한 모드는 [모드 관리](../mods/README.md)와 각 모드의 README에 따라 `~/.config/herdr-app/`에 적용합니다.
 
+Windows에서는 2단계를 [Windows 준비](build-prerequisites.md#6-windows에서-준비)로, 4단계를 [Windows 설치](private-build.md#windows에서-설치)로 바꿉니다. Windows 앱에서 WSL 터미널을 쓰려면 WSL에는 코어만 설치하고 [WSL 머신 연결](private-build.md#wsl을-windows-앱의-머신으로-연결)을 따릅니다.
+
 ## 기준 환경
 
 설치·설정 절차의 기준 환경입니다. 아래 버전은 최신 버전이나 모든 환경의 호환성을 보장하는 값이 아닙니다.
@@ -22,6 +24,8 @@ Herdr 자체의 통계·업데이트 통신을 차단한 소스 빌드는 [전�
 | 운영체제 | Ubuntu 24.04.4 LTS, x86_64 |
 | 데스크톱 앱 | `herdr-app 0.1.15` |
 | 코어 | `hc 0.1.21` (`herdr-core --version`도 같은 값을 출력합니다.) |
+
+Windows x86_64 설치 절차는 upstream의 Windows 설치 스크립트를 기준으로 작성했으며, 실제 Windows 환경에서 검증하지 않았습니다.
 
 ## 원본 소스
 
@@ -51,6 +55,8 @@ Herdr 코어와 앱은 작업 공간 루트에, 모드 원본은 `mods/sources/`
 | `~/.config/herdr-app/settings.json` | 앱 설정과 통계 전송 여부를 지정합니다. |
 | `~/.config/herdr-app/keys.json` | 앱 단축키를 지정합니다. |
 | `~/.config/herdr-app/mods/` | 앱에 적용한 모드를 보관합니다. |
+
+Windows의 설치 경로는 [Windows 설치](private-build.md#windows에서-설치)에 정리했습니다. 앱 설정 경로는 Windows에서도 `%USERPROFILE%\.config\herdr-app\`입니다.
 
 `HERDR_APP_HOME`은 앱 설정 경로를 직접 지정하고 `XDG_CONFIG_HOME`보다 우선합니다. `XDG_DATA_HOME`을 사용하는 설치에서는 앱과 실행 항목의 경로도 달라집니다. 다른 장비에서는 실제 경로부터 확인합니다. [설정 경로 설명](https://github.com/herdrdev/herdr-app/blob/v0.1.15/docs/security.md#what-stays-on-disk)
 

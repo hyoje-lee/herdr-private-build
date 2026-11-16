@@ -4,7 +4,7 @@
 
 ## 1. 대상과 기준 소스 확인
 
-코어만 필요한 서버에는 GUI 라이브러리가 필요하지 않습니다. 데스크톱 앱은 차단 빌드 코어를 먼저 설치한 뒤 준비합니다. 현재 설치 스크립트는 Linux x86_64·aarch64를 지원합니다.
+코어만 필요한 서버에는 GUI 라이브러리가 필요하지 않습니다. 데스크톱 앱은 차단 빌드 코어를 먼저 설치한 뒤 준비합니다. 현재 설치 스크립트는 Linux x86_64·aarch64와 Windows x86_64를 지원합니다. 아래 2~5절은 Linux 기준이며, Windows는 [6절](#6-windows에서-준비)을 따릅니다. WSL은 Linux로 취급합니다.
 
 ```sh
 uname -sm
@@ -123,3 +123,35 @@ free -h
 실행 중인 기존 앱과 코어는 자동으로 중지하지 않습니다. 설치 전에 기존 터미널을 정리하고 앱과 코어를 정상 종료할 시점을 결정합니다. 설정은 기존 `~/.config/herdr-app/`을 그대로 사용합니다.
 
 장비별 확인 결과와 부족한 항목은 `docs/local-history/YYYY-MM-DD.md`에 기록하고, 다른 환경에서도 필요한 절차 변경만 공유 문서에 반영합니다.
+
+## 6. Windows에서 준비
+
+Windows x86_64에서는 upstream CI(`windows-2022`·`windows-2025` 러너)와 같은 MSVC 도구로 빌드합니다. WSL에서 Windows용 `.exe`를 교차 빌드하지 않습니다. 앱 빌드에 Windows SDK의 `fxc.exe`가 필요하기 때문입니다. 이 절차는 Windows에서 실제로 빌드해 검증하지 않았습니다.
+
+| 항목 | 코어 | 앱 |
+| --- | --- | --- |
+| Git for Windows·Python 3.10 이상 | 필요합니다. | 필요합니다. |
+| Rust(`x86_64-pc-windows-msvc` 호스트)·cargo-deny·Zig 0.16.0 | 필요합니다. 버전 기준은 Linux와 같습니다. | 같습니다. |
+| Visual Studio Build Tools의 C++ x64 도구(MSVC) | 필요합니다. `vswhere.exe`로 확인합니다. | 필요합니다. |
+| Windows PowerShell·System32의 `tar.exe` | 필요합니다. ConPTY를 받고 소스를 풀 때 씁니다. | 필요합니다. |
+| LLVM의 `libclang.dll` | 필요하지 않습니다. | 필요합니다. 기본 위치가 아니면 `LIBCLANG_PATH`를 지정합니다. |
+| Windows SDK의 `fxc.exe` | 필요하지 않습니다. | 필요합니다. 찾지 못하면 `GPUI_FXC_PATH`를 지정합니다. |
+
+winget을 사용하는 환경의 예시입니다. 패키지 ID는 설치 전에 `winget show`로 확인합니다.
+
+```powershell
+winget install Git.Git Python.Python.3.12 Rustlang.Rustup LLVM.LLVM zig.zig
+winget install Microsoft.VisualStudio.2022.BuildTools --override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+rustup toolchain install 1.95.0 --profile minimal
+cargo install --locked cargo-deny
+```
+
+`--includeRecommended`를 주면 VC 도구와 Windows SDK가 함께 설치됩니다. Zig는 `zig version`이 `0.16.0`인지 확인합니다. 다른 버전이 설치되면 [공식 다운로드](https://ziglang.org/download/)의 0.16.0 파일을 쓰고 `ZIG` 환경변수로 지정합니다. 이후 새 PowerShell 창에서 검사합니다.
+
+```powershell
+$env:RUSTUP_TOOLCHAIN = "1.95.0"
+.\scripts\build-install-core.ps1 --check
+.\scripts\build-install-app.ps1 --check
+```
+
+긴 경로 때문에 빌드가 실패하면 저장소를 짧은 경로(예: `C:\src\herdr-private-build`)에 clone합니다.

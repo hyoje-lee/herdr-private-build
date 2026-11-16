@@ -33,7 +33,7 @@ git submodule update --init --recursive
 
 ## 앱에 적용
 
-실제 앱 설정 위치는 `~/.config/herdr-app/`입니다. 모드별 README에 적힌 파일과 절차에 따라 적용합니다.
+실제 앱 설정 위치는 `~/.config/herdr-app/`입니다. Windows에서는 `%USERPROFILE%\.config\herdr-app\`입니다. 모드별 README에 적힌 파일과 절차에 따라 적용합니다.
 
 - 기존 파일을 확인하고 변경 전에 백업합니다. 이름이 같은 모드가 이미 있으면 내용을 비교합니다.
 - `keys.json` 같은 설정 조각은 기존 파일에 섹션과 키별로 병합합니다. 파일 전체를 덮어쓰지 않습니다.

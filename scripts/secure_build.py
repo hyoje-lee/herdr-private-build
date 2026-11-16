@@ -13,8 +13,12 @@ import sys
 import tempfile
 
 from secure_policy import PINS, POLICY, apply
+import secure_windows as windows
 
 ROOT = Path(__file__).resolve().parent.parent
+# Windows follows upstream's Windows installers; every other path is the Linux one.
+WINDOWS = platform.system() == "Windows"
+SUPPORTED = {"Linux": ("x86_64", "aarch64"), "Windows": ("AMD64",)}
 
 
 def run(args, **kwargs):
@@ -55,7 +59,8 @@ def prepare(work, component):
         with tempfile.TemporaryFile() as archive:
             run(["git", "-C", ROOT / name, "archive", revision], stdout=archive)
             archive.seek(0)
-            run(["tar", "-x", "-C", target], stdin=archive)
+            tar = [windows.system_tar(), "-x", "-f", "-"] if WINDOWS else ["tar", "-x"]
+            run([*tar, "-C", target], stdin=archive)
     patch = apply(work, component)
     (work / "private.patch").write_text(patch)
     manifest = {"policy": POLICY, "component": component, "sources": source_pins(component), "patch_sha256": digest(work / "private.patch"),
@@ -70,11 +75,18 @@ def zig_command():
     return str(Path(found).resolve()) if found else requested
 
 
+def exe(name):
+    return name + (".exe" if WINDOWS else "")
+
+
 def prerequisites(component):
     zig = zig_command()
-    tools = ["git", "tar", "cargo", "cargo-deny", "rustc", zig, "cc"]
-    if component == "app":
-        tools += ["clang", "pkg-config", "c++"]
+    if WINDOWS:
+        tools = ["git", "cargo", "cargo-deny", "rustc", zig, "powershell"]
+    else:
+        tools = ["git", "tar", "cargo", "cargo-deny", "rustc", zig, "cc"]
+        if component == "app":
+            tools += ["clang", "pkg-config", "c++"]
     problems = ["Missing tool: " + name for name in tools if not shutil.which(name)]
     if shutil.which("rustc"):
         rust = output(["rustc", "--version"]).split()[1]
@@ -82,7 +94,9 @@ def prerequisites(component):
             problems.append(f"Rust >= 1.95.0 required (found {rust})")
     if shutil.which(zig) and output([zig, "version"]) != "0.16.0":
         problems.append("Zig 0.16.0 required")
-    if component == "app" and shutil.which("pkg-config"):
+    if WINDOWS:
+        problems += windows.prerequisites(component, output)
+    elif component == "app" and shutil.which("pkg-config"):
         for package in ("xcb", "xkbcommon", "xkbcommon-x11", "wayland-client", "vulkan", "fontconfig", "freetype2"):
             if subprocess.run(["pkg-config", "--exists", package], capture_output=True).returncode:
                 problems.append("Missing app development library: " + package)
@@ -114,11 +128,17 @@ def is_private(binary):
     return result.stdout.strip() == POLICY
 
 
+def install_dir(prefix, component):
+    # Upstream's layouts: Linux keeps both in <prefix>/bin; Windows gives each its own folder.
+    return prefix / f"herdr-{component}" if WINDOWS else prefix / "bin"
+
+
 def require_private_core(prefix):
-    # The patched app runs the herdr-core next to it, so that core must be patched too.
-    core = prefix / "bin/herdr-core"
+    # The patched app runs the core it ships with (same folder, or herdr-core\ beside it on Windows).
+    core = install_dir(prefix, "core") / exe("herdr-core")
     if not core.is_file() or not is_private(core):
-        raise RuntimeError("Install the patched core first with scripts/build-install-core.sh using the same --prefix")
+        script = "build-install-core.ps1" if WINDOWS else "build-install-core.sh"
+        raise RuntimeError(f"Install the patched core first with scripts/{script} using the same --prefix")
 
 
 def deny_config(component):
@@ -185,26 +205,31 @@ def build(work, manifest, offline, jobs):
     cwd = work / project
     run(["cargo", "build", "--release", *flags], cwd=cwd, env=env)
     # Run only the policy regressions with real-looking endpoints and a curl that records any call.
-    sentinels = work / "test-bin"
-    sentinels.mkdir()
-    curl_used = work / "unexpected-curl"
-    (sentinels / "curl").write_text('#!/bin/sh\nprintf "called\\n" >> "$HERDR_PRIVATE_CURL_SENTINEL"\nexit 99\n')
-    (sentinels / "curl").chmod(0o755)
     test_env = dict(env, HERDR_TELEMETRY_URL="http://127.0.0.1:9/telemetry",
                     HERDR_FEEDBACK_URL="http://127.0.0.1:9/feedback",
-                    HERDR_RELEASES_URL="http://127.0.0.1:9/releases",
-                    HERDR_PRIVATE_CURL_SENTINEL=str(curl_used),
-                    PATH=str(sentinels) + os.pathsep + env.get("PATH", ""))
+                    HERDR_RELEASES_URL="http://127.0.0.1:9/releases")
+    curl_used = work / "unexpected-curl"
+    if not WINDOWS:
+        # Windows resolves only curl.exe (and the app calls System32's), so a script sentinel cannot
+        # stand in there; the gated functions under test return before reaching curl either way.
+        sentinels = work / "test-bin"
+        sentinels.mkdir()
+        (sentinels / "curl").write_text('#!/bin/sh\nprintf "called\\n" >> "$HERDR_PRIVATE_CURL_SENTINEL"\nexit 99\n')
+        (sentinels / "curl").chmod(0o755)
+        test_env.update(HERDR_PRIVATE_CURL_SENTINEL=str(curl_used), PATH=str(sentinels) + os.pathsep + env.get("PATH", ""))
     target = ["--lib"] if project == "herdr-core" else ["--bin", "herdr-app"]
     run(["cargo", "test", "--release", *flags, "-p", project, *target, "private_policy_"], cwd=cwd, env=test_env)
     if curl_used.exists():
         raise RuntimeError("Policy test invoked curl; refusing to install")
-    binary = work / "target/release" / project
+    binary = work / "target/release" / exe(project)
     if not is_private(binary):
         raise RuntimeError(f"Incorrect build identity: {project}")
     manifest["tools"] = {tool: output([tool, "--version"]) for tool in ("rustc", "cargo")}
     manifest["tools"].update(zig=output([env["ZIG"], "version"]), zig_path=env["ZIG"])
     manifest["binaries"] = {project: digest(binary)}
+    if WINDOWS and component == "core":
+        windows.fetch_conpty(work, offline)
+        manifest["binaries"].update({path: digest(work / "target/release" / path) for path in windows.CONPTY_FILES})
     (work / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 
@@ -216,18 +241,53 @@ def desktop_entry(exe):
             f'Exec="{quoted}"\nIcon=herdr-app\nTerminal=false\nCategories=Development;\nStartupWMClass=herdr-app\n')
 
 
+def install_items(work, prefix, data, component):
+    """Each entry: (destination, kind, source); kind is "file" (copy), "text", "link", "hardlink" or "shortcut"."""
+    project = f"herdr-{component}"
+    binary = work / "target/release" / exe(project)
+    if WINDOWS:
+        # Upstream's Windows layout: %LOCALAPPDATA%\Programs\herdr-core and \herdr-app, each on the user PATH.
+        directory = install_dir(prefix, component)
+        if component == "core":
+            notices = sorted((work / "herdr-core/distribution/windows").iterdir())
+            return ([(directory / "herdr-core.exe", "file", binary), (directory / "hc.exe", "hardlink", directory / "herdr-core.exe")]
+                    + [(directory / path, "file", work / "target/release" / path) for path in windows.CONPTY_FILES]
+                    + [(directory / "THIRD-PARTY-NOTICES" / notice.name, "file", notice) for notice in notices])
+        return [(directory / "herdr-app.exe", "file", binary),
+                (directory / "herdr-app.svg", "file", work / "herdr-app/assets/icons/herdr-ui-icon-clean.svg"),
+                (windows.start_menu() / "Herdr.lnk", "shortcut", directory / "herdr-app.exe")]
+    bin_dir = prefix / "bin"
+    if component == "core":
+        return [(bin_dir / "herdr-core", "file", binary), (bin_dir / "hc", "link", "herdr-core")]
+    return [(bin_dir / "herdr-app", "file", binary),
+            (data / "icons/hicolor/scalable/apps/herdr-app.svg", "file", work / "herdr-app/assets/icons/herdr-ui-icon-clean.svg"),
+            (data / "applications/herdr-app.desktop", "text", desktop_entry(bin_dir / "herdr-app"))]
+
+
+def place(temporary, path, stamp, leftovers):
+    if not (WINDOWS and os.path.lexists(path)):
+        os.replace(temporary, path)
+        return
+    # Windows cannot replace a running executable (the core server, ConPTY), but it can rename it.
+    aside = path.with_name(f".herdr-old-{stamp}-{path.name}")
+    os.replace(path, aside)
+    try:
+        os.replace(temporary, path)
+    except BaseException:
+        os.replace(aside, path)
+        raise
+    try:
+        aside.unlink()
+    except OSError:
+        leftovers.append(aside)
+
+
 def install(work, prefix, data, component):
     project = f"herdr-{component}"
-    binary = work / "target/release" / project
-    bin_dir = prefix / "bin"
-    # Each entry: (destination, kind, source): kind is "file" (copy), "text" or "link".
-    if component == "core":
-        items = [(bin_dir / "herdr-core", "file", binary), (bin_dir / "hc", "link", "herdr-core")]
-    else:
+    bin_dir = install_dir(prefix, component)
+    if component == "app":
         require_private_core(prefix)
-        items = [(bin_dir / "herdr-app", "file", binary),
-                 (data / "icons/hicolor/scalable/apps/herdr-app.svg", "file", work / "herdr-app/assets/icons/herdr-ui-icon-clean.svg"),
-                 (data / "applications/herdr-app.desktop", "text", desktop_entry(bin_dir / "herdr-app"))]
+    items = install_items(work, prefix, data, component)
     state = data / "herdr-build"
     # Provenance of the installed build; replaced and rolled back together with the binaries.
     items += [(state / component / name, "file", work / name) for name in ("manifest.json", "private.patch")]
@@ -249,31 +309,50 @@ def install(work, prefix, data, component):
     (backup / "restore.json").write_text(json.dumps(record, indent=2) + "\n")
 
     replaced = []
+    leftovers = []
+    path_before = None
     try:
         for path, kind, source in items:
             path.parent.mkdir(parents=True, exist_ok=True)
-            fd, temporary = tempfile.mkstemp(prefix=".herdr-build-", dir=path.parent)
+            # WScript.Shell saves shortcuts only under a .lnk name.
+            fd, temporary = tempfile.mkstemp(prefix=".herdr-build-", suffix=".lnk" if kind == "shortcut" else "", dir=path.parent)
             os.close(fd)
             try:
                 if kind == "link":
                     os.unlink(temporary)
                     os.symlink(source, temporary)
+                elif kind == "hardlink":
+                    os.unlink(temporary)
+                    os.link(source, temporary)
+                elif kind == "shortcut":
+                    os.unlink(temporary)
+                    windows.create_shortcut(temporary, source)
                 elif kind == "file":
                     shutil.copyfile(source, temporary)
                     os.chmod(temporary, 0o755 if path.parent == bin_dir else 0o644)
                 else:
                     Path(temporary).write_text(source)
                     os.chmod(temporary, 0o644)
-                os.replace(temporary, path)
+                place(temporary, path, stamp, leftovers)
             except BaseException:
                 if os.path.lexists(temporary):
                     os.unlink(temporary)
                 raise
             replaced.append(path)
+        if WINDOWS:
+            path_before = windows.add_to_user_path(bin_dir)
+            if path_before:
+                record.append({"user_path": str(bin_dir), "previous": path_before})
+                (backup / "restore.json").write_text(json.dumps(record, indent=2) + "\n")
     except Exception as failure:
         errors = []
+        if path_before:
+            try:
+                windows.restore_user_path(path_before)
+            except OSError as error:
+                errors.append(f"user PATH: {error}")
         for path in reversed(replaced):
-            saved = next(item["backup"] for item in record if item["path"] == str(path))
+            saved = next(item["backup"] for item in record if item.get("path") == str(path))
             try:
                 if saved:
                     restored = path.with_name(".herdr-restore-" + path.name)
@@ -289,6 +368,10 @@ def install(work, prefix, data, component):
 
     print(f"Installed {project} into {bin_dir}\nPrevious files backed up: {backup}\n"
           "Running Herdr processes were not stopped; quit them and start Herdr again.")
+    if path_before:
+        print(f"Added {bin_dir} to your user PATH: new terminals find it.")
+    if leftovers:
+        print("Files still in use were renamed aside; delete them after Herdr restarts:\n  " + "\n  ".join(map(str, leftovers)))
 
 
 def main():
@@ -300,11 +383,17 @@ def main():
     parser.add_argument("--audit", action="store_true", help="check the patched sources against RustSec advisories, without building/installing")
     parser.add_argument("--offline", action="store_true", help="use cached Cargo dependencies; Zig also needs cached packages")
     parser.add_argument("--jobs", type=int, default=min(os.cpu_count() or 1, 4))
-    parser.add_argument("--prefix", type=Path, default=Path.home() / ".local")
-    parser.add_argument("--data-home", type=Path, default=Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))))
+    if WINDOWS:
+        local = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData/Local")
+        default_prefix, default_data = local / "Programs", local
+    else:
+        default_prefix = Path.home() / ".local"
+        default_data = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))
+    parser.add_argument("--prefix", type=Path, default=default_prefix)
+    parser.add_argument("--data-home", type=Path, default=default_data)
     args = parser.parse_args()
-    if platform.system() != "Linux" or platform.machine() not in ("x86_64", "aarch64"):
-        parser.error("This installer supports Linux x86_64/aarch64 only")
+    if platform.machine() not in SUPPORTED.get(platform.system(), ()):
+        parser.error("This installer supports Linux x86_64/aarch64 and Windows x86_64 only")
     if args.jobs < 1:
         parser.error("--jobs must be positive")
     if args.audit and (args.check or args.prepare_only or args.build_only):
