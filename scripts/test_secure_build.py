@@ -10,6 +10,7 @@ import unittest
 import shutil
 from unittest.mock import patch
 
+import build_environment as environment
 import secure_build as builder
 from secure_policy import POLICY, apply
 
@@ -144,26 +145,122 @@ class InstallTests(unittest.TestCase):
 
 class PrerequisiteTests(unittest.TestCase):
     def test_explicit_zig_is_the_version_checked(self):
-        def versions(argv):
-            return "rustc 1.95.0 (test)" if argv[0] == "rustc" else "0.17.0"
+        versions = {("rustc", "--version"): "rustc 1.95.0", ("cargo", "--version"): "cargo 1.95.0",
+                    ("cargo", "deny", "--version"): "cargo-deny 0.20.2", ("/custom/zig", "version"): "0.17.0"}
 
-        with patch.dict(os.environ, {"ZIG": "/custom/zig"}), \
-             patch.object(builder.shutil, "which", side_effect=lambda name: name if name.startswith("/") else "/tool/" + name), \
-             patch.object(builder, "output", side_effect=versions) as commands:
-            with self.assertRaisesRegex(RuntimeError, "Zig 0.16.0 required"):
-                builder.prerequisites("core")
-            self.assertIn((["/custom/zig", "version"],), [call.args for call in commands.call_args_list])
+        def version_result(argv, **kwargs):
+            return subprocess.CompletedProcess(argv, 0, stdout=versions[tuple(argv)])
+
+        problems = []
+        with patch.dict(os.environ, {"ZIG": "/custom/zig"}), patch.object(
+            environment.subprocess, "run", side_effect=version_result
+        ):
+            environment.checked_tools(builder.zig_command(), problems)
+        self.assertIn("zig: expected 0.16.0, found 0.17.0", problems)
+        self.assertTrue(any("cargo-deny: expected 0.19.8, found 0.20.2" in msg for msg in problems))
 
     def test_core_does_not_require_app_tools_or_libraries(self):
-        tools = lambda name: None if name in ("clang", "pkg-config") else "/tool/" + name
-        versions = lambda argv: "rustc 1.95.0 (test)" if argv[0] == "rustc" else "0.16.0"
-        with patch.object(builder.shutil, "which", side_effect=tools), \
-             patch.object(builder, "output", side_effect=versions), \
-             patch.object(builder.subprocess, "run") as runner:
+        with patch.object(builder, "review_profile", return_value=({}, [])), patch.object(builder.subprocess, "run") as run:
             builder.prerequisites("core")
-            runner.assert_not_called()
-            with self.assertRaisesRegex(RuntimeError, "clang"):
-                builder.prerequisites("app")
+            run.assert_not_called()
+            run.return_value.returncode = 1
+            with patch.object(builder.shutil, "which", return_value="/usr/bin/pkg-config"):
+                with self.assertRaisesRegex(RuntimeError, "Missing app development library: xcb"):
+                    builder.prerequisites("app")
+
+
+class ProfileTests(unittest.TestCase):
+    profile = {"component": "core", "platform": "ubuntu-24.04-amd64", "tools": {"rustc": "1.95.0"},
+               "packages": {"perl": "5.38.2-3.2ubuntu0.4"}}
+    upgraded = dict(profile, packages={"perl": "5.38.2-3.2ubuntu0.7"})
+
+    def review(self, observed, candidate=False, baseline=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "build-profiles").mkdir()
+            if baseline is not None:
+                (root / "build-profiles/ubuntu-24.04-amd64-core.json").write_text(json.dumps(baseline))
+            with patch.object(environment, "ROOT", root), \
+                 patch.object(environment, "observe", return_value=(dict(observed), [])):
+                return environment.review_profile("core", "zig", candidate)
+
+    def test_matching_baseline_passes(self):
+        self.assertEqual(self.review(self.profile, baseline=self.profile), self.profile)
+
+    def test_mismatch_or_missing_baseline_is_blocked(self):
+        with self.assertRaisesRegex(environment.ProfileError, "packages perl: expected 5.38.2-3.2ubuntu0.4"):
+            self.review(self.upgraded, baseline=self.profile)
+        with self.assertRaises(environment.ProfileError) as raised:
+            self.review(self.profile)
+        self.assertIn("reviewed profile missing", raised.exception.summary)
+
+    def test_candidate_is_not_compared_with_the_baseline(self):
+        self.assertEqual(self.review(self.upgraded, candidate=True, baseline=self.profile), self.upgraded)
+
+    def test_audit_checks_only_cargo_deny(self):
+        with patch.object(environment, "checked_tools") as tools:
+            environment.audit_prerequisites()
+        self.assertEqual(tools.call_args.kwargs["names"], ("cargo-deny",))
+
+
+class MainTests(unittest.TestCase):
+    runtime = {"libc.so.6": "libc6"}
+
+    def main(self, root, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with patch.object(sys, "argv", ["secure_build.py", *argv]), patch.object(builder, "ROOT", root), \
+             patch.object(builder, "check_sources"), patch("sys.stdout", out), patch("sys.stderr", err):
+            builder.main()
+        return out.getvalue(), err.getvalue()
+
+    def test_check_passes_matching_baseline(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(builder, "prerequisites", return_value={}):
+            out, _ = self.main(Path(tmp), "core", "--check")
+        self.assertIn("Build preflight [core] PASSED", out)
+
+    def test_audit_skips_the_ubuntu_baseline(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(builder, "prerequisites") as prerequisites, \
+             patch.object(builder, "audit_prerequisites") as tools, \
+             patch.object(builder, "prepare", return_value={}), \
+             patch.object(builder, "require_reviewed_advisories") as advisories, \
+             patch.object(builder, "build") as build:
+            self.main(Path(tmp), "app", "--audit")
+        prerequisites.assert_not_called()
+        tools.assert_called_once()
+        advisories.assert_called_once()
+        build.assert_not_called()
+
+    def build_only(self, root, *argv, runtime=None):
+        baseline = root / "baseline.json"
+        baseline.write_text(json.dumps({"runtime": self.runtime}))
+        with patch.object(builder, "prerequisites", side_effect=lambda *a: dict(ProfileTests.profile)), \
+             patch.object(builder, "prepare", return_value={"component": "core"}), \
+             patch.object(builder, "require_reviewed_advisories"), patch.object(builder, "build"), \
+             patch.object(builder, "runtime_packages", return_value=runtime or self.runtime), \
+             patch.object(builder, "profile_path", return_value=baseline), \
+             patch.object(builder, "install") as install:
+            self.main(root, "core", *argv)
+        install.assert_not_called()
+        return next(root.glob(".build/private/build-*"))
+
+    def test_build_records_the_environment_in_the_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = self.build_only(Path(tmp), "--build-only")
+            manifest = json.loads((work / "manifest.json").read_text())
+        self.assertEqual(manifest["build_environment"]["runtime"], self.runtime)
+        self.assertEqual(manifest["build_environment"]["packages"], ProfileTests.profile["packages"])
+
+    def test_runtime_library_change_stops_the_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(RuntimeError, "runtime libm.so.6"):
+                self.build_only(Path(tmp), "--build-only", runtime=dict(self.runtime, **{"libm.so.6": "libc6"}))
+
+    def test_review_build_writes_a_candidate_without_installing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = self.build_only(Path(tmp), "--review-build")
+            candidate = json.loads((work / "candidate-profile.json").read_text())
+        self.assertEqual(candidate["runtime"], self.runtime)
 
 
 class AuditTests(unittest.TestCase):

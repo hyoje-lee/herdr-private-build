@@ -1,0 +1,6 @@
+# Optional project tool installation. The builder checks these versions with or without mise.
+# Ubuntu build and runtime packages are recorded separately for each component in build-profiles/.
+[tools]
+rust = "1.95.0"
+zig = "0.16.0"
+"cargo:cargo-deny" = "0.19.8"

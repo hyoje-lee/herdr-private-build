@@ -4,7 +4,7 @@
 
 ## 1. 대상과 기준 소스 확인
 
-코어만 필요한 서버에는 GUI 라이브러리가 필요하지 않습니다. 데스크톱 앱은 차단 빌드 코어를 먼저 설치한 뒤 준비합니다. 현재 설치 스크립트는 Linux x86_64·aarch64를 지원합니다.
+코어만 필요한 서버에는 GUI 라이브러리가 필요하지 않습니다. 데스크톱 앱은 차단 빌드 코어를 먼저 설치한 뒤 준비합니다. 현재 설치 기준 파일은 Ubuntu 24.04 amd64용입니다. 다른 Ubuntu 릴리스나 arm64에는 해당 환경에서 검토한 기준 파일이 필요합니다.
 
 ```sh
 uname -sm
@@ -38,9 +38,9 @@ git submodule update --init --recursive herdr-app
 | 항목 | 코어 | 앱 |
 | --- | --- | --- |
 | Git·tar·Python 3.10 이상 | 필요합니다. | 필요합니다. |
-| Rust·Cargo | 기준은 Rust 1.95.0이며, 스크립트는 1.95.0 이상을 검사합니다. | 같습니다. |
+| Rust·Cargo | 두 도구 모두 [mise.toml](../mise.toml)의 Rust 버전과 일치해야 합니다. | 같습니다. |
 | Zig | 0.16.0이 필요합니다. | 0.16.0이 필요합니다. |
-| cargo-deny | 의존성 취약점 검사에 필요합니다. 없으면 빌드·설치를 중단합니다. 0.19.8에서 확인했습니다. | 같습니다. |
+| cargo-deny | 의존성 취약점 검사를 위해 `mise.toml`에 지정한 버전이 필요합니다. | 같습니다. |
 | C/C++ 빌드 도구 | 필요합니다. | 필요합니다. |
 | clang·공유 libclang·pkg-config | 현재 코어 빌드에서는 별도로 요구하지 않습니다. | bindgen과 GUI 의존성에 필요합니다. |
 | XCB·xkbcommon·Wayland·Vulkan·fontconfig·freetype 개발 파일 | 필요하지 않습니다. | 필요합니다. |
@@ -69,6 +69,12 @@ pkg-config --modversion xcb xkbcommon xkbcommon-x11 wayland-client \
 
 ## 3. 자동 사전 검사
 
+최초 기준은 기존 차단 빌드의 설치 기록, 해당 환경의 Ubuntu 패키지 버전, 설치 바이너리가 사용하는 공유 라이브러리로 구성했습니다. 구성요소별 목록은 [코어 기준](../build-profiles/ubuntu-24.04-amd64-core.json)과 [앱 기준](../build-profiles/ubuntu-24.04-amd64-app.json)에서 확인합니다.
+
+`--check`는 재빌드할 환경이 기준 파일과 같은지 검사합니다. 도구나 패키지 버전이 다르거나 기준 파일이 없으면 중단합니다. 버전이 기준과 일치하면 검토한 빌드를 재현할 수 있으므로 통과합니다. 스크립트는 Ubuntu 보안 업데이트를 확인하지 않습니다. 패키지 업데이트는 기준을 바꾸기 전에 별도로 검토합니다.
+
+패키지를 업그레이드해 기준과 달라졌다면 해당 구성요소 스크립트의 `--review-build`로 빌드와 정책 테스트를 수행합니다. `--review-build`는 기존 기준과 비교하지 않고, 통과하면 현재 환경을 `candidate-profile.json`으로 기록합니다. 이 파일과 기존 기준의 차이를 검토한 후 기준 파일을 갱신합니다. `--audit`는 Rust 의존성 권고만 검사하므로 이 기준과 관계없이 cargo-deny 버전과 소스 리비전만 확인합니다.
+
 ```sh
 ./scripts/build-install-core.sh --check
 ```
@@ -89,7 +95,7 @@ pkg-config --modversion xcb xkbcommon xkbcommon-x11 wayland-client \
 
 ```sh
 # 코어 공통 도구
-sudo apt-get install build-essential git python3
+sudo apt-get install build-essential git python3 python3-apt
 
 # 데스크톱 앱을 설치할 장비에만 추가합니다.
 sudo apt-get install pkg-config clang libclang-dev \
@@ -104,7 +110,7 @@ RUSTUP_TOOLCHAIN=1.95.0 ./scripts/build-install-core.sh --check
 RUSTUP_TOOLCHAIN=1.95.0 ./scripts/build-install-app.sh --check
 ```
 
-cargo-deny는 `cargo install --locked cargo-deny`로 설치할 수 있습니다. 이 명령은 crates.io에서 소스를 내려받아 빌드합니다.
+cargo-deny는 `cargo install --locked cargo-deny --version 0.19.8`로 설치할 수 있습니다. mise를 사용하는 장비에서는 저장소 루트에서 `mise install`로 세 도구를 준비하고 `mise exec -- ./scripts/build-install-core.sh --check`로 확인할 수 있습니다.
 
 Zig는 [공식 다운로드](https://ziglang.org/download/)에서 OS·아키텍처에 맞는 0.16.0 배포 파일과 SHA-256을 확인하고, `zig`가 PATH에 있도록 준비합니다. 별도 설치 경로를 사용한다면 `ZIG=/절대/경로/zig`를 지정할 수 있습니다. 사전 검사·빌드·manifest 모두 동일한 실행 파일을 사용합니다. Cargo와 Zig의 의존성 다운로드에는 허용된 네트워크·프록시·인증서 구성이 필요합니다. 프록시 인증정보나 전체 환경변수는 문서에 복사하지 않습니다.
 

@@ -13,6 +13,7 @@ This repository builds Herdr (core and desktop app) from pinned upstream source 
 
 ## Working rules
 
+- Keep build tool pins in [mise.toml](mise.toml) and platform-specific installation baselines in [build-profiles/](build-profiles/). A version match establishes reproducibility. Evaluate current security advisories separately and review updates with the component build and policy tests before adopting a new baseline.
 - Keep user-facing documentation in Korean. Keep these instructions in English; `CLAUDE.md` imports this file.
 - Keep shared documentation focused on reproducing the setup on another machine: version requirements, configuration, commands, rationale, and validation procedures. Keep procedures in their canonical documents and link instead of duplicating them.
 - Maintain dated local work records in `docs/local-history/YYYY-MM-DD.md`, including relevant session references, host-specific paths, backup locations, and validation results. This directory is gitignored except for `.gitkeep`; preserve existing records when reorganizing documentation and never force-add them.

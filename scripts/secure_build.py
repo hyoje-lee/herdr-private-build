@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 
+from build_environment import ProfileError, audit_prerequisites, differences, profile_path, review_profile, runtime_packages
 from secure_policy import PINS, POLICY, apply
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -70,18 +71,9 @@ def zig_command():
     return str(Path(found).resolve()) if found else requested
 
 
-def prerequisites(component):
-    zig = zig_command()
-    tools = ["git", "tar", "cargo", "cargo-deny", "rustc", zig, "cc"]
-    if component == "app":
-        tools += ["clang", "pkg-config", "c++"]
-    problems = ["Missing tool: " + name for name in tools if not shutil.which(name)]
-    if shutil.which("rustc"):
-        rust = output(["rustc", "--version"]).split()[1]
-        if tuple(map(int, rust.split("-")[0].split("."))) < (1, 95, 0):
-            problems.append(f"Rust >= 1.95.0 required (found {rust})")
-    if shutil.which(zig) and output([zig, "version"]) != "0.16.0":
-        problems.append("Zig 0.16.0 required")
+def prerequisites(component, candidate=False):
+    profile = review_profile(component, zig_command(), candidate)
+    problems = []
     if component == "app" and shutil.which("pkg-config"):
         for package in ("xcb", "xkbcommon", "xkbcommon-x11", "wayland-client", "vulkan", "fontconfig", "freetype2"):
             if subprocess.run(["pkg-config", "--exists", package], capture_output=True).returncode:
@@ -103,6 +95,7 @@ def prerequisites(component):
             problems.append("Missing loadable libclang (install libclang-dev or set LIBCLANG_PATH)")
     if problems:
         raise RuntimeError("\n" + "\n".join(problems) + "\nSee docs/build-prerequisites.md")
+    return profile
 
 
 def is_private(binary):
@@ -128,7 +121,7 @@ def deny_config(component):
 def audit(work, component, offline):
     """Check the prepared sources against RustSec advisories; return (error count, finding lines)."""
     if not shutil.which("cargo-deny"):
-        raise RuntimeError("cargo-deny is not installed (cargo install --locked cargo-deny)")
+        raise RuntimeError("cargo-deny is not installed; see mise.toml and docs/build-prerequisites.md")
     # The advisory database is fetched from GitHub unless --offline uses the cached copy.
     network = ["--offline"] if offline else []
     result = subprocess.run(["cargo", "deny", "--color", "never", "--format", "json", *network, "--locked", "--workspace",
@@ -150,10 +143,11 @@ def audit(work, component, offline):
                 # A reviewed advisory that no longer matches: its ID is in the first label.
                 label = (fields.get("labels") or [{}])[0].get("span", "") + " (remove from the reviewed list)"
             findings.append(f"{fields['severity']}[{fields.get('code')}] {label + ': ' if label else ''}{fields.get('message')}")
-    if summary is None:
+    errors = summary.get("errors") if isinstance(summary, dict) else None
+    if type(errors) is not int or errors < 0 or (result.returncode and not errors):
         detail = result.stderr.strip()[-500:] or f"exit status {result.returncode}"
         raise RuntimeError(f"cargo-deny did not report a result: {detail}")
-    return summary.get("errors", 0), findings
+    return errors, findings
 
 
 def require_reviewed_advisories(work, component, offline):
@@ -297,6 +291,7 @@ def main():
     parser.add_argument("--check", action="store_true", help="check source pins and prerequisites without building/installing")
     parser.add_argument("--prepare-only", action="store_true", help="export and patch sources, without building/installing")
     parser.add_argument("--build-only", action="store_true", help="build and test, without installing")
+    parser.add_argument("--review-build", action="store_true", help="validate a candidate environment and emit its profile without installing")
     parser.add_argument("--audit", action="store_true", help="check the patched sources against RustSec advisories, without building/installing")
     parser.add_argument("--offline", action="store_true", help="use cached Cargo dependencies; Zig also needs cached packages")
     parser.add_argument("--jobs", type=int, default=min(os.cpu_count() or 1, 4))
@@ -307,17 +302,33 @@ def main():
         parser.error("This installer supports Linux x86_64/aarch64 only")
     if args.jobs < 1:
         parser.error("--jobs must be positive")
+    if args.review_build and (args.check or args.prepare_only or args.build_only or args.audit):
+        parser.error("--review-build must be used on its own")
     if args.audit and (args.check or args.prepare_only or args.build_only):
         parser.error("--audit cannot be combined with --check, --prepare-only or --build-only")
     prefix = args.prefix.expanduser().absolute()
     data = args.data_home.expanduser().absolute()
-    if args.check or not (args.prepare_only or args.audit):
-        prerequisites(args.component)
-        check_sources(args.component)
-        if args.component == "app" and not args.build_only:
-            require_private_core(prefix)
+    profile = None
+    if args.check or not args.prepare_only:
+        stage = "build prerequisites"
+        try:
+            if args.audit:
+                stage = "advisory tool check"
+                audit_prerequisites()
+            else:
+                profile = prerequisites(args.component, args.review_build)
+            stage = "pinned source check"
+            check_sources(args.component)
+            if args.component == "app" and not (args.build_only or args.audit or args.review_build):
+                stage = "installed private core check"
+                require_private_core(prefix)
+        except (RuntimeError, OSError, subprocess.CalledProcessError) as error:
+            if not args.check:
+                raise
+            summary = error.summary if isinstance(error, ProfileError) else stage
+            sys.exit(f"{error}\n\nBuild preflight [{args.component}] BLOCKED ({summary})")
         if args.check:
-            print(f"Prerequisites and sources OK: {args.component}")
+            print(f"Build preflight [{args.component}] PASSED")
             return
     base = ROOT / ".build/private"
     base.mkdir(parents=True, exist_ok=True)
@@ -336,7 +347,23 @@ def main():
         return
     manifest["advisory_check"] = "no unreviewed advisories"
     build(work, manifest, args.offline, args.jobs)
-    if not args.build_only:
+    # Recheck before publication in case apt or the toolchain changed during compilation.
+    if prerequisites(args.component, args.review_build) != profile:
+        raise RuntimeError("Build inputs changed during compilation; repeat the build")
+    project = "herdr-" + args.component
+    profile["runtime"] = runtime_packages(work / "target/release" / project, profile["packages"])
+    if args.review_build:
+        candidate = work / "candidate-profile.json"
+        candidate.write_text(json.dumps(profile, sort_keys=True, indent=2) + "\n")
+        print(f"Candidate passed build and policy tests. Review {candidate} before updating the repository.")
+    else:
+        expected = json.loads(profile_path(profile, args.component).read_text())
+        changes = differences("runtime", expected["runtime"], profile["runtime"])
+        if changes:
+            raise RuntimeError("\n".join(changes))
+    manifest["build_environment"] = profile
+    (work / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    if not (args.build_only or args.review_build):
         install(work, prefix, data, args.component)
 
 
