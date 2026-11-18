@@ -15,12 +15,12 @@ Herdr 자체의 통계·업데이트 통신을 차단한 소스 빌드는 [전�
 
 ## 기준 환경
 
-설치·설정 절차의 기준 환경입니다. 아래 버전은 최신 버전이나 모든 환경의 호환성을 보장하는 값이 아닙니다.
+아래 앱과 코어 버전은 이 저장소에 고정된 소스를 빌드했을 때의 `--version` 출력입니다. 같은 소스로 재현하려면 [소스 검토에 기록된 커밋](source-audit.md#범위와-기준)을 확인합니다.
 
 | 항목 | 기준값 |
 | --- | --- |
 | 운영체제 | Ubuntu 24.04.4 LTS, x86_64 |
-| 데스크톱 앱 | `herdr-app 0.1.15` |
+| 데스크톱 앱 | `herdr-app 0.1.16` |
 | 코어 | `hc 0.1.21` (`herdr-core --version`도 같은 값을 출력합니다.) |
 
 ## 원본 소스
@@ -39,7 +39,7 @@ Herdr 코어와 앱은 작업 공간 루트에, 모드 원본은 `mods/sources/`
 
 ## 설치 경로
 
-기본 설치 경로는 다음과 같습니다. [v0.1.15 설치 스크립트](https://github.com/herdrdev/herdr-app/blob/v0.1.15/distribution/install.sh)도 함께 참고합니다.
+차단 빌드는 [빌드 안내](private-build.md#설치-후-사용하는-환경)에 설명한 경로에 설치합니다. 아래 표는 [공식 앱 v0.1.15 설치 스크립트](https://github.com/herdrdev/herdr-app/blob/v0.1.15/distribution/install.sh)를 기준으로 합니다.
 
 | 경로 | 용도 |
 | --- | --- |
